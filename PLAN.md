@@ -74,13 +74,13 @@ ReAct 循环（每步规范化）：
 - 面试辩护点：ReAct 单框架简洁可控，每一步都基于真实工具结果决策；
   工具规范性约束防止模型幻觉（编造工具/假完成）
 
-## 5. 工具集（对标 Claude Code，15 个工具，五类）
+## 5. 工具集（对标 Claude Code，16 个工具，五类）
 
 | 类别 | 工具 | 说明 |
 |---|---|---|
 | 文件操作 | `read_file` / `write_file` / `edit_file` | edit 用精确替换 + 上下文校验，失败可模糊匹配重试 |
 | 代码库探索 | `list_dir` / `grep` / `glob` / `find_symbols` | find_symbols 用 AST 提取函数/类定义位置 |
-| 执行与测试 | `run_command` / `run_python` / `run_tests` | 超时 + 输出截断 + 工作目录限定；run_tests 包装 pytest |
+| 执行与测试 | `run_command` / `run_python` / `run_tests` / `generate_test` | 超时 + 输出截断 + 工作目录限定；run_tests 包装 pytest 返回结构化结果（支持指定已有测试文件与自动发现）；generate_test 对目标代码文件生成测试样例（内部调 LLM，产出 `test_*.py`，与 run_tests 配合"生产→执行"） |
 | Git 操作 | `git_status` / `git_diff` / `git_commit` / `git_log` | git CLI 子命令白名单 |
 | **代码质量** | `code_review` | 内建**编译器级语法检查**（ast.parse，机械可靠）+ 评审者视角审查逻辑/需求/质量/安全，输出问题清单与修复建议；语法错误列为严重问题；模型在需要时（实现完成/测试通过后）按需自主调用，是"测试通过≠任务完成"的兜底。**不设独立 check_syntax 工具**（语法检查已并入评审） |
 
@@ -106,7 +106,8 @@ coding-agent/
 │   │   ├── base.py               # Tool 抽象基类
 │   │   ├── file_tools.py         # read/write/edit
 │   │   ├── explore_tools.py      # list_dir/grep/glob/find_symbols
-│   │   ├── exec_tools.py         # run_command/run_python/run_tests
+│   │   ├── exec_tools.py         # run_command/run_python
+│   │   ├── test_tools.py         # run_tests（pytest 结构化结果）/ generate_test（内部调 LLM 生成测试）
 │   │   ├── git_tools.py          # git_status/git_diff/git_commit/git_log
 │   │   └── review_tools.py       # code_review：评审者视角检查文件/git diff（内部调 LLM）
 │   └── sandbox.py                # 安全层
