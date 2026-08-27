@@ -11,12 +11,13 @@ class RunCommandTool(Tool):
     name = "run_command"
     description = (
         "在用户机器的 shell（Windows cmd）中执行一条命令。"
-        "常用于运行程序验证结果（如 python game.py）、执行测试、查看环境等。"
-        "命令在工作区目录下执行，默认 60 秒超时，输出过长会自动截断。"
-        "注意：shell 是 Windows cmd 而不是 bash：管道符直接写 |，不要加 ^ 转义"
+        "常用于安装依赖（pip install）、运行程序（python xxx.py）、查看环境（python --version）"
+        "等纯命令操作。命令在工作区目录下执行，默认 60 秒超时，输出过长会自动截断。"
+        "注意：测试执行请用 run_tests 工具，语法检查与代码评审请用 code_review 工具，"
+        "不要用本工具做这两件事。"
+        "shell 是 Windows cmd 而不是 bash：管道符直接写 |，不要加 ^ 转义"
         "（错误示例 echo 50^|python game.py 只会打印字符串；正确写法 echo 50|python game.py）。"
-        "交互式程序（需要输入的游戏）不要直接运行阻塞，应先用 python -m py_compile 做语法检查，"
-        "再用测试脚本传入输入验证。"
+        "交互式程序（需要输入的游戏）不要直接运行阻塞，用测试脚本传入输入验证。"
     )
     parameters = {
         "type": "object",

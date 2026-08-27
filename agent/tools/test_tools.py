@@ -36,8 +36,8 @@ class GenerateTestTool(Tool):
     name = "generate_test"
     description = (
         "为指定代码文件生成 pytest 测试样例：分析代码后生成 test_<文件名>.py"
-        "（覆盖正常/边界/异常路径）。用于对写好的或修改过的代码补测试；"
-        "生成后可用 run_tests 运行。path 必须是相对工作区的相对路径。"
+        "（覆盖正常/边界/异常路径）。完成或修改功能代码后应主动调用为代码补测试；"
+        "生成后用 run_tests 运行验证。path 必须是相对工作区的相对路径。"
     )
     parameters = {
         "type": "object",
