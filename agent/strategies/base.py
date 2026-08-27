@@ -1,7 +1,8 @@
-"""策略抽象基类：所有推理策略（ReAct / PlanExecute / Reflect）统一接口。
+"""策略抽象基类：所有推理策略统一接口。
 
 策略决定"agent 如何组织思考与行动"——这是推理框架可插拔的关键：
 新增策略只需继承 AgentStrategy 并实现 run()，注册一行即可生效。
+当前唯一策略：react（规范化 tool-calling 循环）。
 """
 
 from abc import ABC, abstractmethod

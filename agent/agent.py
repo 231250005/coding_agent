@@ -31,7 +31,7 @@ class Agent:
         self.llm = llm or LLMClient()
         # code_review 等依赖 LLM 的工具需要注入客户端
         self.registry = registry or build_default_registry(llm=self.llm)
-        self.strategy = strategy or get_strategy("plan_execute")
+        self.strategy = strategy or get_strategy("react")
         self.system_prompt = build_system_prompt(workspace)
         self.on_event = on_event or (lambda event: None)
         # 预算护栏：单任务 LLM 调用次数上限（环境变量 MAX_LLM_CALLS 可覆盖）
