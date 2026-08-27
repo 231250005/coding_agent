@@ -23,7 +23,7 @@
 | 日期 | 阶段 | 内容 |
 |---|---|---|
 | **8/27 晚** | 代码 D1 | 新建公开 git 仓库；项目骨架；`llm.py` 接通 qwen3.7-flash 的 tool calling；工具注册表框架 |
-| **8/28** | 代码 D2 | Agent 引擎核心：策略框架（ReAct 基座 + PlanExecute + Reflect）；文件类工具 |
+| **8/28** | 代码 D2 | Agent 引擎核心：策略框架（PlanExecute 顶层 + ReAct 内核）；文件类工具；评审工具 |
 | **8/29** | 代码 D3 | 探索类 + 执行类 + git 类工具；上下文管理（token 估算 + 摘要压缩）；错误处理；安全层 |
 | **8/30** | 代码 D4 | FastAPI 后端：REST + WebSocket 流式事件、会话持久化、停止机制；晚间前后端联调 |
 | **8/31** | 视频/面试 D5 | 用 agent 完成 2~3 个真实任务（视频素材）；录视频；写 README.txt |
@@ -42,37 +42,49 @@ FastAPI 服务 ── server/
         ├── prompts.py    系统提示词：身份/工作流程/工具规范（独立维护）
         ├── context.py    上下文管理：token 估算 + 长对话摘要压缩
         ├── agent.py      编排器：策略循环、终止条件、错误恢复、事件回调
-        ├── strategies/   ReAct / Plan-and-Execute / Reflect（可插拔）
-        ├── tools/        工具注册表 + 本地实现（文件/探索/执行/git 四类）
+        ├── strategies/   PlanExecute 顶层 + ReAct 执行内核（可插拔）
+        ├── tools/        工具注册表 + 本地实现（文件/探索/执行/git/评审）
         └── sandbox.py    安全层：工作目录锁定、超时、输出截断、危险命令防护
 通义千问 API（百炼 dashscope compatible-mode, qwen3.7-flash）
 ```
 
 技术选型理由（面试会问）：Python + FastAPI + openai SDK 快且稳；前端 Vue 3 + Vite 前后端分离，演示效果好。
 
-## 4. 推理框架：多策略（非单一固定工作流）
+## 4. 推理框架：Plan-and-Execute 顶层 + ReAct 执行内核
+
+两级结构（任何任务都先规划，子任务按 mode 选择执行内核）：
 
 ```
-Agent（编排器：循环、终止条件、错误恢复、上下文）
-  └── 运行时选择策略 ── StrategyRegistry（可插拔）
-       ├── ReActStrategy       标准 tool-calling 循环：思考→调用→观察→…→最终回复
-       ├── PlanExecuteStrategy ① 结构化 prompt 生成计划(JSON steps)
-       │                      ② 逐步执行；每步后模型判断"继续/修计划/完成"
-       └── ReflectStrategy     主任务完成后追加自检：结合 git diff 评审
-                               → 生成改进点 → 修复 → 重跑测试验证
+用户任务
+   ↓
+PlanExecuteStrategy（顶层外壳，恒定）
+   ├─ ① 规划：模型生成结构化 JSON 计划（步骤数随任务复杂度自适应：
+   │        复杂任务子任务多、简单任务子任务少）
+   ├─ ② 子任务循环：逐个执行 → 收集结果摘要 → 模型判断：
+   │        a. 继续下一个子任务   b. 修改剩余计划（重规划）   c. 全部完成
+   │      每个子任务交给内核执行：
+   │        mode=react → ReAct 循环（写代码/改文件/探索/测试执行）
+   │        mode=plain → 单次 LLM 回答（方案分析/总结，不需工具）
+   └─ ③ 收尾评审：全部步骤完成后，强制以评审者视角对照任务需求自检
+           → 发现问题回到对应子任务修复 → 复验 → 通过后才最终输出
 ```
 
-- 策略选择：界面手动切换（演示时展示"不是单一工作流"）+ 模型按任务复杂度自动选择
-- 面试辩护点：ReAct 灵活但无目标感；PlanExecute 对多文件大任务可控性强；Reflect 解决"跑通但质量差"。三者共用同一 `AgentStrategy` 接口，新增策略只加一个文件
+- **规划 JSON 协议**：`{goal, steps: [{id, task, mode, output}]}`，mode 由模型规划时指定
+- **子任务级上下文隔离**：每个子任务独立运行自己的消息历史，完成后只保留结果摘要进全局上下文——长任务不会上下文爆炸
+- **评审工具化（关键设计）**：代码质量保障由 `code_review` 工具承担（评审者视角检查文件/git diff，输出问题清单与修复建议）；不设独立"反思框架"——执行性验证（跑测试看结果）已被 ReAct 循环内化，主观评审只需一个评审者视角工具
+- **重规划**：子任务失败 → 重试（≤2 次）/ 重规划 / 放弃并向用户报告
+- **终止条件（多层）**：步骤全完成（模型确认）/ 子任务数上限 / 单子任务迭代上限 / 全局迭代预算 / 用户手动停止
+- 面试辩护点：ReAct 灵活但无目标感（长任务易迷失）；PlanExecute 锚定目标、复杂度自适应、计划可观测（演示核心）；评审工具化使"测试通过≠任务完成"有兜底。三者组合 = 非单一固定工作流
 
-## 5. 工具集（对标 Claude Code，12 个工具）
+## 5. 工具集（对标 Claude Code，15 个工具，五类）
 
 | 类别 | 工具 | 说明 |
 |---|---|---|
 | 文件操作 | `read_file` / `write_file` / `edit_file` | edit 用精确替换 + 上下文校验，失败可模糊匹配重试 |
 | 代码库探索 | `list_dir` / `grep` / `glob` / `find_symbols` | find_symbols 用 AST 提取函数/类定义位置 |
 | 执行与测试 | `run_command` / `run_python` / `run_tests` | 超时 + 输出截断 + 工作目录限定；run_tests 包装 pytest |
-| Git 操作 | `git_status` / `git_diff` / `git_commit` / `git_log` | git CLI 子命令白名单；git_diff 是 Reflect 策略的输入 |
+| Git 操作 | `git_status` / `git_diff` / `git_commit` / `git_log` | git CLI 子命令白名单 |
+| **代码质量** | `code_review` | 评审者视角检查文件/git diff，输出问题清单与修复建议；由 PlanExecute 收尾评审调用，是"测试通过≠任务完成"的兜底 |
 
 每个工具 = JSON schema 定义 + 本地实现，统一走 `ToolRegistry` 注册。
 
@@ -90,16 +102,16 @@ coding-agent/
 │   ├── strategies/
 │   │   ├── __init__.py           # StrategyRegistry（注册+自动选择）
 │   │   ├── base.py               # AgentStrategy 抽象基类
-│   │   ├── react.py              # ReAct 循环
-│   │   ├── plan_execute.py       # 计划→执行→动态修计划
-│   │   └── reflect.py            # 自检→修复→复验
+│   │   ├── react.py              # ReAct 循环（子任务执行内核）
+│   │   └── plan_execute.py       # 顶层外壳：规划→子任务调度→重规划→收尾评审
 │   ├── tools/
 │   │   ├── __init__.py           # ToolRegistry
 │   │   ├── base.py               # Tool 抽象基类
 │   │   ├── file_tools.py         # read/write/edit
 │   │   ├── explore_tools.py      # list_dir/grep/glob/find_symbols
 │   │   ├── exec_tools.py         # run_command/run_python/run_tests
-│   │   └── git_tools.py          # git_status/git_diff/git_commit/git_log
+│   │   ├── git_tools.py          # git_status/git_diff/git_commit/git_log
+│   │   └── review_tools.py       # code_review：评审者视角检查文件/git diff（内部调 LLM）
 │   └── sandbox.py                # 安全层
 ├── server/                       # FastAPI 服务层
 │   ├── __init__.py
@@ -138,9 +150,9 @@ coding-agent/
 
 ## 8. 功能清单（优先级）
 
-**P0 核心**：主循环；工具集四类；终止条件（最大迭代/完成判定/用户停止）；错误处理（重试/工具异常回传/输出截断）
+**P0 核心**：PlanExecute 顶层 + ReAct 内核；工具集五类；终止条件（步骤完成/子任务上限/迭代上限/全局预算/用户停止）；错误处理（重试/工具异常回传/输出截断/重规划）
 
-**P1 高分加分**：Web 流式可视化；上下文管理（token 估算 + 摘要压缩）；文件树 + diff 视图；计划展示；停止按钮；token 统计；会话持久化
+**P1 高分加分**：Web 流式可视化；子任务级上下文隔离 + token 估算/摘要压缩；文件树 + diff 视图；计划展示；收尾评审（code_review）；停止按钮；token 统计；会话持久化
 
 **P2 富余再做**：自动测试循环、git 工具增强、UI 打磨
 
@@ -150,6 +162,8 @@ coding-agent/
 - 上下文为什么超长要摘要压缩而不是直接截断 → 信息保留 vs 成本
 - 为什么终止条件要多层 → 模型判定 + 迭代上限 + 用户中断
 - 工具出错为什么回传给模型 → 自我纠错闭环
-- 为什么多策略而非单一工作流 → 任务类型差异、可扩展性
+- 为什么 PlanExecute 顶层 + ReAct 内核（两层而非单循环）→ ReAct 灵活但无目标感；PlanExecute 锚定目标、复杂度自适应、计划可观测
+- 为什么评审工具化而非独立反思框架 → 执行性验证（跑测试看结果）已被 ReAct 内化；主观评审只需一个评审者视角工具，框架最少化
+- 为什么子任务结果用摘要进全局上下文 → 子任务级上下文隔离，长任务不爆炸
 - 为什么工具/策略用注册表模式 → 扩展只加文件不改核心逻辑
 - 为什么 agent/ 层不依赖 FastAPI → 可测试性、架构清晰
