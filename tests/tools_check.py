@@ -144,10 +144,40 @@ def main():
     r = CodeReviewTool._syntax_check([good, bad])
     print("   ", r.replace("\n", " | "))
 
+    # ---------- run_tests / generate_test ----------
+    print("=" * 50)
+    print("[19] run_tests 指定文件（全部通过）")
+    reg.execute("write_file", {"path": "calc.py", "content": "def add(a, b):\n    return a + b\n"})
+    reg.execute("write_file", {"path": "test_calc.py", "content": "from calc import add\n\ndef test_add():\n    assert add(1, 2) == 3\n"})
+    r = reg.execute("run_tests", {"path": "test_calc.py"})
+    print("   ", r["ok"], "|", r["output"].splitlines()[0])
+
+    print("=" * 50)
+    print("[20] run_tests 失败用例（期望 ok=False，含失败明细）")
+    reg.execute("write_file", {"path": "test_fail.py", "content": "def test_will_fail():\n    assert 1 + 1 == 3\n"})
+    r = reg.execute("run_tests", {"path": "test_fail.py"})
+    print("   ", r["ok"], "|", " | ".join(r["output"].splitlines()[:3]))
+
+    print("=" * 50)
+    print("[21] run_tests 自动发现（不传 path，应同时收集 test_calc/test_fail）")
+    r = reg.execute("run_tests", {})
+    print("   ", r["ok"], "|", r["output"].splitlines()[0])
+
+    print("=" * 50)
+    print("[22] generate_test 未注入 LLM（期望 ok=False）")
+    from agent.tools.test_tools import GenerateTestTool
+    r = GenerateTestTool(llm=None).execute({"path": "calc.py"})
+    print("   ", r["ok"], "|", r["output"])
+
+    print("=" * 50)
+    print("[23] generate_test 未注入 LLM 优先拦截（期望 ok=False）")
+    r = GenerateTestTool(llm=None).execute({"path": "no_such.py"})
+    print("   ", r["ok"], "|", r["output"])
+
     # ---------- 清理 ----------
     shutil.rmtree(_WS, ignore_errors=True)
     print("=" * 50)
-    print("✅ 工具层全部验证通过（18 项，临时工作区已清理）")
+    print("✅ 工具层全部验证通过（23 项，临时工作区已清理）")
 
 
 if __name__ == "__main__":

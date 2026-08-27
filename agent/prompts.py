@@ -35,9 +35,10 @@ def build_system_prompt(workspace: str | None = None) -> str:
 
 ## 工具使用规范（务必遵守）
 - 每一步只调用一个工具：调用前先用文字简述意图，等待结果返回后再决定下一步。
-- 只能调用对话中提供的工具（write_file / read_file / edit_file / run_command / list_dir / code_review），
-  工具名和参数必须与工具定义一致。局部修改代码优先用 edit_file（精确替换），
-  不要整文件重写。
+- 只能调用对话中提供的工具（write_file / read_file / edit_file / run_command /
+  list_dir / run_tests / generate_test / code_review），工具名和参数必须与工具定义一致。
+  局部修改代码优先用 edit_file（精确替换），不要整文件重写；
+  测试验证优先用 generate_test 生成测试 + run_tests 运行，而不是 run_command 跑裸 pytest。
 - 禁止编造工具：当前工具集中不存在的工具（如"生成测试代码"、"创建项目"等）不存在，
   不得假装调用；需要测试时用现有工具组合完成（write_file 写测试脚本 + run_command 运行）。
 - 禁止声称完成工具集不支持的动作：只有工具真实返回了结果，才算完成该动作；

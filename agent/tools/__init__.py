@@ -10,6 +10,7 @@ from .exec_tools import RunCommandTool
 from .explore_tools import ListDirTool
 from .file_tools import EditFileTool, ReadFileTool, WriteFileTool
 from .review_tools import CodeReviewTool
+from .test_tools import GenerateTestTool, RunTestsTool
 
 __all__ = ["Tool", "ToolRegistry", "build_default_registry"]
 
@@ -55,6 +56,8 @@ def build_default_registry(llm=None) -> ToolRegistry:
         EditFileTool(),
         RunCommandTool(),
         ListDirTool(),
+        RunTestsTool(),
+        GenerateTestTool(llm=llm),
         CodeReviewTool(llm=llm),
     ):
         registry.register(tool)
