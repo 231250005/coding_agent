@@ -23,6 +23,22 @@ def pretty_print(event: dict) -> None:
         print(f"📦 结果 {mark}: {output[:400]}{'...' if len(output) > 400 else ''}")
     elif t == "message":
         print(f"\n💬 {event['content']}")
+    elif t == "plan":
+        steps = event.get("steps", [])
+        print(f"\n📋 计划: {event.get('goal', '')}（{len(steps)} 个子任务）")
+        for s in steps:
+            print(f"   {s.get('id', '?')}. [{s.get('mode', '?')}] {s.get('task', '')}")
+    elif t == "subtask_start":
+        idx = event.get("index", "?")
+        total = event.get("total", "?")
+        print(f"\n📌 子任务 {idx}/{total} [{event.get('mode', '?')}]: {event.get('task', '')}")
+    elif t == "subtask_done":
+        print(f"✅ 子任务 {event.get('index', '?')} 完成: {event.get('summary', '')[:150]}")
+    elif t == "replan":
+        print(f"\n🔄 计划调整: {event.get('reason', '')}")
+    elif t == "review":
+        mark = "✅" if event.get("ok") else "⚠️"
+        print(f"\n🔍 收尾评审 {mark}: {str(event.get('content', ''))[:300]}")
     elif t == "error":
         print(f"\n⚠️ 错误: {event['content']}")
     elif t == "done":

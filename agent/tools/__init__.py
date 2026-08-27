@@ -9,6 +9,7 @@ from .base import Tool
 from .exec_tools import RunCommandTool
 from .explore_tools import ListDirTool
 from .file_tools import ReadFileTool, WriteFileTool
+from .review_tools import CodeReviewTool
 
 __all__ = ["Tool", "ToolRegistry", "build_default_registry"]
 
@@ -42,9 +43,18 @@ class ToolRegistry:
             return {"ok": False, "output": f"工具 {name} 执行异常：{e}"}
 
 
-def build_default_registry() -> ToolRegistry:
-    """构建默认工具集。后续新增工具在这里注册一行即可。"""
+def build_default_registry(llm=None) -> ToolRegistry:
+    """构建默认工具集。后续新增工具在这里注册一行即可。
+
+    llm: 注入给依赖 LLM 的工具（如 code_review 评审工具）。
+    """
     registry = ToolRegistry()
-    for tool in (WriteFileTool(), ReadFileTool(), RunCommandTool(), ListDirTool()):
+    for tool in (
+        WriteFileTool(),
+        ReadFileTool(),
+        RunCommandTool(),
+        ListDirTool(),
+        CodeReviewTool(llm=llm),
+    ):
         registry.register(tool)
     return registry

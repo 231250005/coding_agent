@@ -18,6 +18,12 @@ TOOL_RESULT = "tool_result"
 MESSAGE = "message"
 ERROR = "error"
 DONE = "done"
+# PlanExecute 顶层框架事件
+PLAN = "plan"                      # 任务计划（goal + steps 列表）
+SUBTASK_START = "subtask_start"    # 子任务开始
+SUBTASK_DONE = "subtask_done"      # 子任务完成（含结果摘要）
+REPLAN = "replan"                  # 计划调整
+REVIEW = "review"                  # 收尾评审结论
 
 # 事件回调：接收一个事件字典
 EventCallback = Callable[[Dict[str, Any]], None]

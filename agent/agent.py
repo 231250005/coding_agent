@@ -26,8 +26,9 @@ class Agent:
         on_event: Optional[Callable[[dict], None]] = None,
     ):
         self.llm = llm or LLMClient()
-        self.registry = registry or build_default_registry()
-        self.strategy = strategy or get_strategy("react")
+        # code_review 等依赖 LLM 的工具需要注入客户端
+        self.registry = registry or build_default_registry(llm=self.llm)
+        self.strategy = strategy or get_strategy("plan_execute")
         self.system_prompt = build_system_prompt(workspace)
         self.on_event = on_event or (lambda event: None)
 

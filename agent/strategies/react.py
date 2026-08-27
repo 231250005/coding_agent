@@ -24,10 +24,28 @@ class ReActStrategy(AgentStrategy):
     def __init__(self, max_iterations: int = DEFAULT_MAX_ITERATIONS):
         self.max_iterations = max_iterations
 
-    async def run(self, task: str, agent: "Agent") -> str:
+    async def run(
+        self,
+        task: str,
+        agent: "Agent",
+        extra_context: str | None = None,
+        report_final: bool = True,
+    ) -> str:
+        """执行任务，返回最终回复文本。
+
+        extra_context: 子任务模式下的任务背景（前序子任务结果摘要），注入 user 消息
+        report_final:  False 时（作为子任务内核被顶层策略调用）不发送 MESSAGE/DONE
+                      事件，由顶层策略统一汇报，避免事件流语义混乱。
+        """
+        user_content = task
+        if extra_context:
+            user_content = (
+                f"【任务】{task}\n\n"
+                f"【任务背景：前序子任务已完成的结果摘要】\n{extra_context}"
+            )
         messages: list = [
             {"role": "system", "content": agent.system_prompt},
-            {"role": "user", "content": task},
+            {"role": "user", "content": user_content},
         ]
         iterations = 0
 
@@ -85,10 +103,12 @@ class ReActStrategy(AgentStrategy):
 
             # 无工具调用 → 这是最终回复
             final = msg.content or "(模型未返回内容)"
-            agent.emit(make_event(MESSAGE, content=final))
-            agent.emit(make_event(DONE, iterations=iterations))
+            if report_final:
+                agent.emit(make_event(MESSAGE, content=final))
+                agent.emit(make_event(DONE, iterations=iterations))
             return final
 
         agent.emit(make_event(ERROR, content=f"达到最大迭代次数（{self.max_iterations}），任务中止"))
-        agent.emit(make_event(DONE, iterations=iterations))
+        if report_final:
+            agent.emit(make_event(DONE, iterations=iterations))
         return "任务未完成：达到最大迭代次数，已强制停止。请考虑把任务拆小后再试。"
