@@ -147,7 +147,7 @@ def main():
     # ---------- 清理 ----------
     shutil.rmtree(_WS, ignore_errors=True)
     print("=" * 50)
-    print("✅ 工具层全部验证通过（17 项，临时工作区已清理）")
+    print("✅ 工具层全部验证通过（18 项，临时工作区已清理）")
 
 
 if __name__ == "__main__":
