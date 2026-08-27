@@ -4,7 +4,8 @@
 1. 普通对话 —— 能拿到模型文本回复
 2. tool calling —— 模型能按 JSON schema 返回结构化的工具调用参数
 
-运行：python smoke_test.py
+注意：这是普通脚本，不是 pytest 测试用例（函数名刻意避开 test_ 前缀，
+避免被 pytest 误收集）。运行方式：python smoke_test.py
 """
 
 from agent.llm import LLMClient
@@ -28,7 +29,7 @@ WEATHER_TOOL = [
 ]
 
 
-def test_plain_chat(client: LLMClient):
+def check_plain_chat(client: LLMClient):
     print("=" * 50)
     print("[1] 测试：普通对话")
     resp = client.chat(
@@ -43,7 +44,7 @@ def test_plain_chat(client: LLMClient):
     return content
 
 
-def test_tool_calling(client: LLMClient):
+def check_tool_calling(client: LLMClient):
     print("=" * 50)
     print("[2] 测试：tool calling（模型应返回 get_weather 的工具调用）")
     resp = client.chat(
@@ -65,8 +66,8 @@ def main():
     client = LLMClient()
     print(f"使用模型: {client.model}")
     print(f"API 端点: https://dashscope.aliyuncs.com/compatible-mode/v1")
-    test_plain_chat(client)
-    tool_calls = test_tool_calling(client)
+    check_plain_chat(client)
+    tool_calls = check_tool_calling(client)
     print("=" * 50)
     if tool_calls:
         print("✅ 全部通过：大模型连通成功，普通对话和 tool calling 均正常")
