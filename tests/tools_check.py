@@ -132,6 +132,18 @@ def main():
     r = reg.execute("read_file", {"path": "edit_demo.py"})
     print("    替换后内容:", r["output"].replace("\n", " | "))
 
+    # ---------- code_review 语法检查（不依赖 LLM 的静态部分） ----------
+    print("=" * 50)
+    print("[18] code_review 内建语法检查（ast.parse，好/坏文件）")
+    from agent.tools.review_tools import CodeReviewTool
+    from pathlib import Path as _Path
+    good = _Path(_WS) / "good.py"
+    bad = _Path(_WS) / "bad.py"
+    good.write_text("def f():\n    return 1\n", encoding="utf-8")
+    bad.write_text("def f(:\n    return 1\n", encoding="utf-8")
+    r = CodeReviewTool._syntax_check([good, bad])
+    print("   ", r.replace("\n", " | "))
+
     # ---------- 清理 ----------
     shutil.rmtree(_WS, ignore_errors=True)
     print("=" * 50)
