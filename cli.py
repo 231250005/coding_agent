@@ -44,7 +44,12 @@ async def main() -> None:
             continue
         if task.lower() in ("exit", "quit"):
             break
-        await agent.run(task)
+        try:
+            await agent.run(task)
+        except KeyboardInterrupt:
+            print("\n⚠️ 任务已中断")
+        except Exception as e:
+            print(f"\n⚠️ 运行异常：{type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":
