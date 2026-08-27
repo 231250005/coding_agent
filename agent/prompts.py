@@ -26,6 +26,10 @@ def build_system_prompt(workspace: str | None = None) -> str:
    - 交互式程序（需要用户输入的游戏等）：先用 python -m py_compile xxx.py 做语法检查
      （最稳，不会阻塞）；再写一个测试脚本用 subprocess 传入输入来验证流程，验证后删除。
      禁止用 python -c "import xxx" 直接调用交互式程序——会阻塞等待输入直至超时。
+   - GUI 程序（tkinter 等窗口程序）：先用 python -m py_compile xxx.py 语法检查，
+     再用 run_command 以 3~5 秒的短超时启动验证——窗口正常弹出即代表程序成功，
+     命令因超时被终止是正常现象（窗口程序不会自行退出），不要把它当作失败；
+     汇报时明确告诉用户：自行运行 python xxx.py 即可游玩（用户运行时窗口常驻）。
 5. 修复：如果运行报错，用 read_file 查看代码定位问题，修复后重新运行，直到成功。
 6. 汇报：任务完成后，用中文总结你做了什么、生成了哪些文件、如何运行。
 
