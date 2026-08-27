@@ -32,7 +32,7 @@ from .react import ReActStrategy
 # 多层终止条件上限
 MAX_STEPS = 8                # 子任务数上限
 MAX_REPLANS = 2              # 重规划次数上限
-SUBTASK_MAX_ITERATIONS = 12  # 单子任务 ReAct 迭代上限
+SUBTASK_MAX_ITERATIONS = 20  # 单子任务 ReAct 迭代上限（写码→测试→修复→评审闭环需要空间）
 
 PLANNER_PROMPT = """你是 CodeAgent 的任务规划器。请把用户任务分解为有序的子任务步骤列表。
 
@@ -42,8 +42,9 @@ PLANNER_PROMPT = """你是 CodeAgent 的任务规划器。请把用户任务分�
 1. 先分析任务目标、约束和完成标准（什么才算真正完成，比如要测试通过、要提交 git）
 2. 分解为 2~8 个有序子任务（简单任务 2~3 步，复杂任务可到 8 步）
 3. 每个子任务标注 mode：
-   - "react"：需要调用工具完成（写代码/改文件/探索代码库/运行命令与测试）
-   - "plain"：纯思考分析，不需要工具（方案设计/代码理解/总结汇报）
+   - "react"：需要调用工具完成（写代码/改文件/探索代码库/运行命令与测试）。
+     注意：需要产出文件（设计文档/代码/测试脚本）的步骤必须用 react 模式
+   - "plain"：纯思考分析，不需要工具也不产出文件（方案思路/代码理解/总结汇报）
 4. 每个子任务写明预期产出（output 字段）
 5. 编码任务的常见步骤：理解需求与探索环境 → 实现 → 测试验证 → 收尾（如 git 提交）
 6. 步骤之间要有依赖顺序，后面的步骤可以依赖前面步骤的产出
@@ -137,7 +138,7 @@ class PlanExecuteStrategy(AgentStrategy):
         # 模型在子任务执行过程中按需自主调用（实现完成、测试通过后自查）。
         final = await self._final_summary(task, summaries, agent)
         agent.emit(make_event(MESSAGE, content=final))
-        agent.emit(make_event(DONE, iterations=len(summaries)))
+        agent.emit(make_event(DONE, iterations=len(summaries), llm_calls=agent.llm_calls))
         return final
 
     # ---------- ① 规划 ----------
