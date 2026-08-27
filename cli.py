@@ -16,7 +16,8 @@ def pretty_print(event: dict) -> None:
     if t == "thinking":
         print(f"\n🤔 {event['content']}")
     elif t == "tool_call":
-        print(f"\n🔧 调用工具 [{event['name']}] 参数: {event['args']}")
+        icon = "🔍" if event["name"] == "code_review" else "🔧"
+        print(f"\n{icon} 调用工具 [{event['name']}] 参数: {event['args']}")
     elif t == "tool_result":
         mark = "✅" if event.get("ok") else "❌"
         output = event.get("output", "")

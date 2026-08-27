@@ -22,7 +22,6 @@ from ..events import (
     MESSAGE,
     PLAN,
     REPLAN,
-    REVIEW,
     SUBTASK_DONE,
     SUBTASK_START,
     make_event,
@@ -31,9 +30,8 @@ from .base import AgentStrategy
 from .react import ReActStrategy
 
 # 多层终止条件上限
-MAX_STEPS = 8              # 子任务数上限
-MAX_REPLANS = 2            # 重规划次数上限
-MAX_REVIEW_ROUNDS = 2      # 收尾评审修复轮数上限
+MAX_STEPS = 8                # 子任务数上限
+MAX_REPLANS = 2              # 重规划次数上限
 SUBTASK_MAX_ITERATIONS = 12  # 单子任务 ReAct 迭代上限
 
 PLANNER_PROMPT = """你是 CodeAgent 的任务规划器。请把用户任务分解为有序的子任务步骤列表。
@@ -85,9 +83,6 @@ FINAL_SUMMARY_PROMPT = """你是 CodeAgent。请基于以下任务执行记录�
 各子任务执行记录：
 {progress}
 
-收尾评审结论：
-{review}
-
 汇报要求：
 - 总结完成了什么、产出哪些文件、验证结果
 - 如有遗留问题或注意事项（如运行方式），一并说明
@@ -137,11 +132,10 @@ class PlanExecuteStrategy(AgentStrategy):
                 step_index = -1  # 从新计划第一个步骤开始
             step_index += 1
 
-        # ---------- 收尾评审（质量兜底） ----------
-        review_output = await self._final_review(task, summaries, agent)
-
         # ---------- 最终汇报 ----------
-        final = await self._final_summary(task, summaries, review_output, agent)
+        # 注：代码评审不由框架固定触发——code_review 是注册表中的工具，
+        # 模型在子任务执行过程中按需自主调用（实现完成、测试通过后自查）。
+        final = await self._final_summary(task, summaries, agent)
         agent.emit(make_event(MESSAGE, content=final))
         agent.emit(make_event(DONE, iterations=len(summaries)))
         return final
@@ -153,7 +147,7 @@ class PlanExecuteStrategy(AgentStrategy):
         prompt = PLANNER_PROMPT.format(task=task)
         if progress:
             prompt += f"\n\n注意：以下子任务已经完成，请基于实际进展重新规划剩余工作（不要重复已完成的部分）：\n{progress_text}"
-        resp = await agent.llm.chat_async(
+        resp = await agent.call_llm(
             [{"role": "system", "content": "你是任务规划器。"}, {"role": "user", "content": prompt}],
             temperature=0.2,
         )
@@ -216,7 +210,7 @@ class PlanExecuteStrategy(AgentStrategy):
                 {"role": "system", "content": agent.system_prompt},
                 {"role": "user", "content": self._build_subtask_message(step, summaries)},
             ]
-            resp = await agent.llm.chat_async(messages)
+            resp = await agent.call_llm(messages)
             return resp.choices[0].message.content or "（无输出）"
         # react：ReAct 内核（子任务模式：不单独发 MESSAGE/DONE，由顶层统一汇报）
         runner = ReActStrategy(max_iterations=SUBTASK_MAX_ITERATIONS)
@@ -230,7 +224,7 @@ class PlanExecuteStrategy(AgentStrategy):
     # ---------- 子任务摘要提取 ----------
 
     async def _summarize(self, step: dict, result: str, agent: "Agent") -> str:
-        resp = await agent.llm.chat_async(
+        resp = await agent.call_llm(
             [{"role": "system", "content": "你是任务记录员。"},
              {"role": "user", "content": SUMMARIZE_PROMPT.format(task=step["task"], result=result)}],
             temperature=0.2,
@@ -253,7 +247,7 @@ class PlanExecuteStrategy(AgentStrategy):
             remaining=json.dumps(remaining, ensure_ascii=False) or "（无）",
         )
         try:
-            resp = await agent.llm.chat_async(
+            resp = await agent.call_llm(
                 [{"role": "system", "content": "你是任务执行监控器。"},
                  {"role": "user", "content": prompt}],
                 temperature=0.1,
@@ -265,40 +259,14 @@ class PlanExecuteStrategy(AgentStrategy):
         except Exception:
             return "continue"  # 判断失败时保守继续
 
-    # ---------- ③ 收尾评审 ----------
-
-    async def _final_review(self, task: str, summaries: list[str], agent: "Agent") -> str:
-        try:
-            review_tool = agent.registry.get("code_review")
-        except KeyError:
-            return "（未注册评审工具，跳过收尾评审）"
-
-        context = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(summaries))
-        issues = review_tool.execute({"context": f"任务需求：{task}\n执行记录：{context}"})
-        agent.emit(make_event(REVIEW, ok=issues.get("ok", False), content=issues.get("output", "")))
-
-        for round_no in range(MAX_REVIEW_ROUNDS):
-            output = issues.get("output", "")
-            if "评审通过" in output or "未发现问题" in output or "无问题" in output:
-                return output
-            # 有问题：把评审意见作为修复子任务，用 ReAct 内核修复后复评审
-            agent.emit(make_event(SUBTASK_START, index=f"修复{round_no + 1}", total="评审", task="修复评审发现的问题", mode="react"))
-            runner = ReActStrategy(max_iterations=SUBTASK_MAX_ITERATIONS)
-            fix_task = f"根据以下代码评审意见修复代码问题：\n{output}"
-            await runner.run(fix_task, agent, extra_context=context, report_final=False)
-            issues = review_tool.execute({"context": f"任务需求：{task}\n执行记录：{context}"})
-            agent.emit(make_event(REVIEW, ok=issues.get("ok", False), content=issues.get("output", "")))
-        return issues.get("output", "（评审未通过但修复轮数已用尽）")
-
     # ---------- 最终汇报 ----------
 
-    async def _final_summary(self, task: str, summaries: list[str], review: str, agent: "Agent") -> str:
-        resp = await agent.llm.chat_async(
+    async def _final_summary(self, task: str, summaries: list[str], agent: "Agent") -> str:
+        resp = await agent.call_llm(
             [{"role": "system", "content": "你是 CodeAgent。"},
              {"role": "user", "content": FINAL_SUMMARY_PROMPT.format(
                  task=task,
                  progress="\n".join(f"{i + 1}. {s}" for i, s in enumerate(summaries)),
-                 review=review,
              )}],
             temperature=0.3,
         )

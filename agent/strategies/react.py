@@ -51,7 +51,7 @@ class ReActStrategy(AgentStrategy):
 
         while iterations < self.max_iterations:
             iterations += 1
-            resp = await agent.llm.chat_async(
+            resp = await agent.call_llm(
                 messages, tools=agent.registry.schemas()
             )
             msg = resp.choices[0].message

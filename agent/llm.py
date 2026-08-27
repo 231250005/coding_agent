@@ -13,8 +13,9 @@ from typing import Optional
 from openai import AsyncOpenAI, OpenAI
 
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-DEFAULT_MODEL = "qwen3.7-flash"
+DEFAULT_MODEL = "qwen3.7-plus"  # 免费额度耗尽后切换；QWEN_MODEL 环境变量可覆盖
 MAX_RETRIES = 3
+MAX_TOKENS = 8192  # 单次生成上限，防止单次超长输出失控
 
 
 class LLMClient:
@@ -33,16 +34,23 @@ class LLMClient:
         self.client = OpenAI(api_key=self.api_key, base_url=base_url)
         self.async_client = AsyncOpenAI(api_key=self.api_key, base_url=base_url)
 
-    def _build_kwargs(self, messages: list, tools: Optional[list], temperature: float) -> dict:
-        kwargs = {"model": self.model, "messages": messages, "temperature": temperature}
+    def _build_kwargs(
+        self, messages: list, tools: Optional[list], temperature: float, max_tokens: int
+    ) -> dict:
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
         if tools:
             kwargs["tools"] = tools
         return kwargs
 
-    def chat(self, messages: list, tools: Optional[list] = None, temperature: float = 0.3):
-        """同步调用（冒烟测试/调试用）。"""
+    def chat(self, messages: list, tools: Optional[list] = None, temperature: float = 0.3, max_tokens: int = MAX_TOKENS):
+        """同步调用（冒烟测试/调试/工具内部使用）。"""
         return self.client.chat.completions.create(
-            **self._build_kwargs(messages, tools, temperature)
+            **self._build_kwargs(messages, tools, temperature, max_tokens)
         )
 
     async def chat_async(
@@ -51,6 +59,7 @@ class LLMClient:
         tools: Optional[list] = None,
         temperature: float = 0.3,
         max_retries: int = MAX_RETRIES,
+        max_tokens: int = MAX_TOKENS,
     ):
         """异步调用（agent 主循环使用），带指数退避重试。
 
@@ -60,7 +69,7 @@ class LLMClient:
         for attempt in range(max_retries):
             try:
                 return await self.async_client.chat.completions.create(
-                    **self._build_kwargs(messages, tools, temperature)
+                    **self._build_kwargs(messages, tools, temperature, max_tokens)
                 )
             except Exception as e:
                 if attempt == max_retries - 1:

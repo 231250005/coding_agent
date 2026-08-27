@@ -3,9 +3,11 @@
 职责：
 - 组装系统提示词、工具注册表、LLM 客户端（依赖注入，便于测试与替换）
 - 通过事件回调（on_event）向 CLI / WebSocket 实时推送运行过程
+- LLM 调用预算护栏：单任务调用次数超限强制中止（防止失控烧额度）
 - 兜底错误处理：策略运行异常时返回错误信息而非崩溃
 """
 
+import os
 from typing import Callable, Optional
 
 from .events import ERROR, DONE, make_event
@@ -24,6 +26,7 @@ class Agent:
         strategy: Optional[AgentStrategy] = None,
         workspace: Optional[str] = None,
         on_event: Optional[Callable[[dict], None]] = None,
+        max_llm_calls: Optional[int] = None,
     ):
         self.llm = llm or LLMClient()
         # code_review 等依赖 LLM 的工具需要注入客户端
@@ -31,10 +34,22 @@ class Agent:
         self.strategy = strategy or get_strategy("plan_execute")
         self.system_prompt = build_system_prompt(workspace)
         self.on_event = on_event or (lambda event: None)
+        # 预算护栏：单任务 LLM 调用次数上限（环境变量 MAX_LLM_CALLS 可覆盖）
+        self.llm_calls = 0
+        self.max_llm_calls = max_llm_calls or int(os.environ.get("MAX_LLM_CALLS", "60"))
 
     def emit(self, event: dict) -> None:
         """推送事件给外部（CLI 打印 / WebSocket 推送）。"""
         self.on_event(event)
+
+    async def call_llm(self, *args, **kwargs):
+        """LLM 调用统一入口：计数 + 预算护栏，超限抛异常终止任务。"""
+        self.llm_calls += 1
+        if self.llm_calls > self.max_llm_calls:
+            raise RuntimeError(
+                f"LLM 调用预算超限（>{self.max_llm_calls} 次），任务中止以控制成本"
+            )
+        return await self.llm.chat_async(*args, **kwargs)
 
     async def run(self, task: str) -> str:
         """执行任务，返回最终回复文本。"""
@@ -42,5 +57,5 @@ class Agent:
             return await self.strategy.run(task, self)
         except Exception as e:
             self.emit(make_event(ERROR, content=f"agent 运行异常：{type(e).__name__}: {e}"))
-            self.emit(make_event(DONE, iterations=0))
+            self.emit(make_event(DONE, iterations=0, llm_calls=self.llm_calls))
             return f"任务运行失败：{type(e).__name__}: {e}"
