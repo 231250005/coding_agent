@@ -1,0 +1,23 @@
+# 凭据
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 前端
+web/node_modules/
+web/dist/
+
+# 会话数据
+server/data/
+
+# 工具
+.idea/
+.vscode/
+
+# 提交包
+*.zip
