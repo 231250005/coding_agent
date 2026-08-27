@@ -39,6 +39,7 @@ FastAPI 服务 ── server/
    ├── 会话持久化 (JSONL)
    └── Agent 引擎 ── agent/
         ├── llm.py        LLM 调用：OpenAI 兼容(通义千问) + 重试 + 流式
+        ├── prompts.py    系统提示词：身份/工作流程/工具规范（独立维护）
         ├── context.py    上下文管理：token 估算 + 长对话摘要压缩
         ├── agent.py      编排器：策略循环、终止条件、错误恢复、事件回调
         ├── strategies/   ReAct / Plan-and-Execute / Reflect（可插拔）
@@ -82,6 +83,7 @@ coding-agent/
 ├── agent/                        # 核心引擎（不依赖 FastAPI，可独立跑 CLI）
 │   ├── __init__.py
 │   ├── llm.py                    # 通义千问(OpenAI兼容)客户端：tool calling/流式/重试
+│   ├── prompts.py                # 系统提示词：身份/工作流程/工具使用规范（独立维护）
 │   ├── context.py                # 上下文管理：token估算、超长摘要压缩、裁剪
 │   ├── events.py                 # AgentEvent 事件模型（thinking/tool_call/tool_result/final/stats）
 │   ├── agent.py                  # Agent 编排器：策略调用、终止条件、错误恢复、事件回调
