@@ -5,10 +5,15 @@
 2. write_file → run_command → read_file → list_dir 完整链路
 3. 路径穿越防护：../ 逃逸应被拒绝
 
-运行：python tools_check.py
+运行：python tests/tools_check.py
 """
 
 import os
+import sys
+from pathlib import Path
+
+# 确保能导入项目根目录下的 agent 包（无论从哪运行）
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent.tools import build_default_registry
 
