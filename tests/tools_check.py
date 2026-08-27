@@ -98,10 +98,44 @@ def main():
     r = reg.execute("read_file", {"path": "long.py"})
     print("   ", r["ok"], "| 行数 =", len(r["output"].splitlines()), "| 末尾提示 =", r["output"].splitlines()[-1][:40])
 
+    # ---------- edit_file ----------
+    print("=" * 50)
+    print("[13] edit_file 精确替换")
+    reg.execute("write_file", {"path": "edit_demo.py", "content": "x = 1\ny = 2\nprint(x + y)\n"})
+    r = reg.execute("edit_file", {"path": "edit_demo.py", "old_string": "y = 2", "new_string": "y = 3"})
+    print("   ", r["ok"], "|", r["output"])
+    r = reg.execute("read_file", {"path": "edit_demo.py"})
+    print("    替换后内容:", r["output"].replace("\n", " | "))
+
+    print("=" * 50)
+    print("[14] edit_file 多匹配（期望 ok=False，提示不唯一）")
+    reg.execute("write_file", {"path": "edit_demo.py", "content": "a = 1\nb = a\na = 2\n"})
+    r = reg.execute("edit_file", {"path": "edit_demo.py", "old_string": "a = ", "new_string": "c = "})
+    print("   ", r["ok"], "|", r["output"])
+
+    print("=" * 50)
+    print("[15] edit_file 容错匹配（old_string 行尾空白差异）")
+    reg.execute("write_file", {"path": "edit_demo.py", "content": "def f():\n    return 1   \nprint(f())\n"})
+    r = reg.execute("edit_file", {"path": "edit_demo.py", "old_string": "    return 1", "new_string": "    return 2"})
+    print("   ", r["ok"], "|", r["output"])
+
+    print("=" * 50)
+    print("[16] edit_file 找不到匹配（期望 ok=False，提示可行动错误）")
+    r = reg.execute("edit_file", {"path": "edit_demo.py", "old_string": "不存在的代码", "new_string": "x"})
+    print("   ", r["ok"], "|", r["output"])
+
+    print("=" * 50)
+    print("[17] edit_file replace_all 全量替换")
+    reg.execute("write_file", {"path": "edit_demo.py", "content": "a = 1\na = 2\na = 3\n"})
+    r = reg.execute("edit_file", {"path": "edit_demo.py", "old_string": "a = ", "new_string": "b = ", "replace_all": True})
+    print("   ", r["ok"], "|", r["output"])
+    r = reg.execute("read_file", {"path": "edit_demo.py"})
+    print("    替换后内容:", r["output"].replace("\n", " | "))
+
     # ---------- 清理 ----------
     shutil.rmtree(_WS, ignore_errors=True)
     print("=" * 50)
-    print("✅ 工具层全部验证通过（12 项，临时工作区已清理）")
+    print("✅ 工具层全部验证通过（17 项，临时工作区已清理）")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@
 from .base import Tool
 from .exec_tools import RunCommandTool
 from .explore_tools import ListDirTool
-from .file_tools import ReadFileTool, WriteFileTool
+from .file_tools import EditFileTool, ReadFileTool, WriteFileTool
 from .review_tools import CodeReviewTool
 
 __all__ = ["Tool", "ToolRegistry", "build_default_registry"]
@@ -52,6 +52,7 @@ def build_default_registry(llm=None) -> ToolRegistry:
     for tool in (
         WriteFileTool(),
         ReadFileTool(),
+        EditFileTool(),
         RunCommandTool(),
         ListDirTool(),
         CodeReviewTool(llm=llm),
