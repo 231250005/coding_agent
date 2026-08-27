@@ -44,7 +44,8 @@ class ReadFileTool(Tool):
     name = "read_file"
     description = (
         "读取文件内容（UTF-8），输出带行号，便于定位问题。"
-        "path 必须是相对工作区的相对路径。文件过长时自动截断。"
+        "path 必须是相对工作区的相对路径。"
+        "大文件可指定 start_line/end_line 分段读取（文件过长会自动截断）。"
     )
     parameters = {
         "type": "object",
@@ -52,6 +53,16 @@ class ReadFileTool(Tool):
             "path": {
                 "type": "string",
                 "description": "相对工作区的文件路径，如 game.py",
+            },
+            "start_line": {
+                "type": "integer",
+                "description": "起始行号（从 1 开始），仅读取该行到 end_line 之间的内容",
+                "minimum": 1,
+            },
+            "end_line": {
+                "type": "integer",
+                "description": "结束行号（含），配合 start_line 分段读取大文件",
+                "minimum": 1,
             },
         },
         "required": ["path"],
@@ -63,10 +74,17 @@ class ReadFileTool(Tool):
             if not path.is_file():
                 return {"ok": False, "output": f"文件不存在：{path.relative_to(get_workspace()).as_posix()}"}
             lines = path.read_text(encoding="utf-8").splitlines()
-            if len(lines) > MAX_READ_LINES:
-                lines = lines[:MAX_READ_LINES]
-                lines.append(f"… (文件过长，仅显示前 {MAX_READ_LINES} 行)…")
-            numbered = "\n".join(f"{i + 1:>4} | {line}" for i, line in enumerate(lines))
+
+            start = int(args.get("start_line") or 1)
+            end = int(args.get("end_line") or len(lines))
+            if start > len(lines):
+                return {"ok": False, "output": f"起始行 {start} 超出文件总行数 {len(lines)}"}
+            segment = lines[start - 1 : end]
+
+            if len(segment) > MAX_READ_LINES:
+                segment = segment[:MAX_READ_LINES]
+                segment.append(f"… (范围过长，仅显示前 {MAX_READ_LINES} 行，可缩小 end_line 继续读取)…")
+            numbered = "\n".join(f"{i + 1:>4} | {line}" for i, line in enumerate(segment, start=start))
             return {"ok": True, "output": truncate(numbered)}
         except Exception as e:
             return {"ok": False, "output": f"读取失败：{e}"}
