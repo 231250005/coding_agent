@@ -1,43 +1,48 @@
-"""messages 表：对话历史。
+"""messages 表：对话历史（SQLAlchemy Model，自动生成建表 DDL）。
 
 只存 user 任务 + assistant 最终回答（过程事件运行中经 SSE 实时展示，不落库）。
 每轮消息记录所用权限（permission_level），前端展示"这一轮用的什么权限"。
 """
 
+from datetime import datetime
 
-class MessageTable:
-    name = "messages"
+from sqlalchemy import DateTime, Index, Integer, String, func
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
+from sqlalchemy.orm import Mapped, mapped_column
 
-    create_sql = """
-    CREATE TABLE IF NOT EXISTS messages (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        session_id INT NOT NULL,
-        role VARCHAR(16) NOT NULL,
-        content MEDIUMTEXT,
-        permission_level INT NOT NULL DEFAULT 3,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_messages_session (session_id, id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    """
+from ..base import Base
+
+
+class MessageTable(Base):
+    __tablename__ = "messages"
+    __table_args__ = (Index("idx_messages_session", "session_id", "id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(Integer)
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str] = mapped_column(MEDIUMTEXT)
+    permission_level: Mapped[int] = mapped_column(Integer, default=3, server_default="3")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # ---------- CRUD ----------
 
     @staticmethod
-    def add(conn, session_id: int, role: str, content: str, permission_level: int = 3) -> int:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO messages (session_id, role, content, permission_level) "
-                "VALUES (%s, %s, %s, %s)",
-                (session_id, role, content, permission_level),
-            )
-            return cur.lastrowid
+    def add(session, session_id: int, role: str, content: str, permission_level: int = 3) -> int:
+        row = MessageTable(
+            session_id=session_id, role=role, content=content, permission_level=permission_level
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row.id
 
     @staticmethod
-    def list_by_session(conn, session_id: int, limit: int = 200) -> list[dict]:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM messages WHERE session_id = %s "
-                "ORDER BY id ASC LIMIT %s",
-                (session_id, limit),
-            )
-            return cur.fetchall()
+    def list_by_session(session, session_id: int, limit: int = 200) -> list["MessageTable"]:
+        from sqlalchemy import select
+
+        return session.execute(
+            select(MessageTable)
+            .where(MessageTable.session_id == session_id)
+            .order_by(MessageTable.id.asc())
+            .limit(limit)
+        ).scalars().all()

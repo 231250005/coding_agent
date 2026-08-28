@@ -1,15 +1,20 @@
-"""数据库连接管理：配置、建库、获取连接、初始化编排。
+"""数据库连接管理：配置、建库、engine 与会话、初始化编排。
 
 - 连接配置走环境变量（MYSQL_HOST/PORT/USER/PASSWORD），默认 localhost:3306 root 空密码
 - 数据库 coding_agent 不存在时自动创建（utf8mb4）
-- 表结构与迁移由 server/tables（每表一文件）与 server/schema（迁移执行器）负责，
-  本模块只做连接与编排，不包含任何业务表 SQL
+- 表由 SQLAlchemy Model（server/tables，每表一文件）定义，
+  create_all 自动生成 DDL 建表；表结构变更由 server/schema 版本化迁移
 """
 
 import os
 
 import pymysql
+from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
+from sqlalchemy.orm import sessionmaker
 
+from . import tables  # noqa: F401  导入以注册所有 Model 到 Base.metadata
+from .base import Base
 from .schema import apply_migrations
 
 DB_NAME = "coding_agent"
@@ -34,29 +39,8 @@ class Database:
         self.password = password if password is not None else _config("MYSQL_PASSWORD", "")
         self.db_name = db_name
         self._initialized = False
-
-    # ---------- 连接 ----------
-
-    def _connect_server(self) -> pymysql.Connection:
-        """连接 MySQL 服务器（不指定库，用于建库）。"""
-        return pymysql.connect(
-            host=self.host, port=self.port, user=self.user,
-            password=self.password, charset="utf8mb4", autocommit=True,
-        )
-
-    def _connect_db(self) -> pymysql.Connection:
-        """直连业务库（不触发初始化，供内部建表/迁移使用）。"""
-        return pymysql.connect(
-            host=self.host, port=self.port, user=self.user,
-            password=self.password, database=self.db_name,
-            charset="utf8mb4", autocommit=True,
-            cursorclass=pymysql.cursors.DictCursor,
-        )
-
-    def get_connection(self) -> pymysql.Connection:
-        """获取业务连接（自动确保库/表已就绪）。"""
-        self.ensure_initialized()
-        return self._connect_db()
+        self.engine = None
+        self.SessionLocal = None
 
     # ---------- 初始化编排 ----------
 
@@ -64,15 +48,19 @@ class Database:
         if self._initialized:
             return
         self._create_database_if_missing()
-        conn = self._connect_db()
-        try:
-            apply_migrations(conn)
-        finally:
-            conn.close()
+        self._create_engine()
+        # 自动建表：由 Model 的 Python 数据结构生成 DDL，创建不存在的表
+        Base.metadata.create_all(self.engine)
+        # 表结构变更（ALTER）按版本应用
+        apply_migrations(self.engine)
         self._initialized = True
 
     def _create_database_if_missing(self) -> None:
-        conn = self._connect_server()
+        """数据库不存在时自动创建（utf8mb4）。"""
+        conn = pymysql.connect(
+            host=self.host, port=self.port, user=self.user,
+            password=self.password, charset="utf8mb4", autocommit=True,
+        )
         try:
             with conn.cursor() as cur:
                 cur.execute(
@@ -81,6 +69,26 @@ class Database:
                 )
         finally:
             conn.close()
+
+    def _create_engine(self) -> None:
+        url = URL.create(
+            "mysql+pymysql",
+            username=self.user,
+            password=self.password,
+            host=self.host,
+            port=self.port,
+            database=self.db_name,
+            query={"charset": "utf8mb4"},
+        )
+        self.engine = create_engine(url, pool_pre_ping=True)
+        self.SessionLocal = sessionmaker(bind=self.engine, autoflush=False, expire_on_commit=False)
+
+    # ---------- 会话获取 ----------
+
+    def get_session(self):
+        """获取 ORM 会话（自动确保库/表已就绪）。"""
+        self.ensure_initialized()
+        return self.SessionLocal()
 
 
 # 模块级单例（FastAPI 生命周期里初始化一次）

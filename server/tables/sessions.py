@@ -1,59 +1,69 @@
-"""sessions 表：会话。
+"""sessions 表：会话（SQLAlchemy Model，自动生成建表 DDL）。
 
 权限是每轮对话的属性，不放在会话层（每次 chat 消息携带 permission_level）。
 """
 
+from datetime import datetime
 
-class SessionTable:
-    name = "sessions"
+from sqlalchemy import DateTime, String, func
+from sqlalchemy.orm import Mapped, mapped_column
 
-    create_sql = """
-    CREATE TABLE IF NOT EXISTS sessions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        title VARCHAR(255) NOT NULL DEFAULT '',
-        workspace VARCHAR(1024) NOT NULL,
-        strategy VARCHAR(64) NOT NULL DEFAULT 'react',
-        status VARCHAR(32) NOT NULL DEFAULT 'running',
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    """
+from ..base import Base
+
+
+class SessionTable(Base):
+    __tablename__ = "sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    workspace: Mapped[str] = mapped_column(String(1024))
+    strategy: Mapped[str] = mapped_column(String(64), default="react", server_default="react")
+    status: Mapped[str] = mapped_column(String(32), default="running", server_default="running")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
 
     # ---------- CRUD ----------
 
     @staticmethod
-    def create(conn, title: str, workspace: str, strategy: str = "react") -> int:
+    def create(session, title: str, workspace: str, strategy: str = "react") -> int:
         """创建会话，返回 session_id。"""
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO sessions (title, workspace, strategy) VALUES (%s, %s, %s)",
-                (title, workspace, strategy),
-            )
-            return cur.lastrowid
+        row = SessionTable(title=title, workspace=workspace, strategy=strategy)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row.id
 
     @staticmethod
-    def get(conn, session_id: int) -> dict | None:
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM sessions WHERE id = %s", (session_id,))
-            return cur.fetchone()
+    def get(session, session_id: int) -> "SessionTable | None":
+        return session.get(SessionTable, session_id)
 
     @staticmethod
-    def list_all(conn) -> list[dict]:
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM sessions ORDER BY updated_at DESC")
-            return cur.fetchall()
+    def list_all(session) -> list["SessionTable"]:
+        from sqlalchemy import select
+
+        return session.execute(
+            select(SessionTable).order_by(SessionTable.updated_at.desc())
+        ).scalars().all()
 
     @staticmethod
-    def update_status(conn, session_id: int, status: str) -> None:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE sessions SET status = %s WHERE id = %s", (status, session_id))
+    def update_status(session, session_id: int, status: str) -> None:
+        row = session.get(SessionTable, session_id)
+        if row:
+            row.status = status
+            session.commit()
 
     @staticmethod
-    def update_title(conn, session_id: int, title: str) -> None:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE sessions SET title = %s WHERE id = %s", (title, session_id))
+    def update_title(session, session_id: int, title: str) -> None:
+        row = session.get(SessionTable, session_id)
+        if row:
+            row.title = title
+            session.commit()
 
     @staticmethod
-    def delete(conn, session_id: int) -> None:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM sessions WHERE id = %s", (session_id,))
+    def delete(session, session_id: int) -> None:
+        row = session.get(SessionTable, session_id)
+        if row:
+            session.delete(row)
+            session.commit()
