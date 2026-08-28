@@ -138,6 +138,10 @@ class ReActStrategy(AgentStrategy):
 
             # 无工具调用 → 这是最终回复
             final = msg.content or "(模型未返回内容)"
+            # L3：任务完成时自动提交全部改动（如有 git 仓库）
+            commit_note = await agent.finalize_commit(task)
+            if commit_note:
+                final += f"\n\n[L3 自动提交] {commit_note}"
             agent.emit(make_event(MESSAGE, content=final))
             agent.emit(make_event(DONE, iterations=iterations, llm_calls=agent.llm_calls))
             return final

@@ -10,23 +10,8 @@ from ..permissions import PermissionLevel, PermissionManager
 from ..sandbox import MAX_READ_LINES, get_workspace, safe_join, truncate
 from .base import Tool
 
-# L3 自动 commit 的消息前缀
-_AUTO_COMMIT_PREFIX = "agent 自动提交"
-
-
-def _try_auto_commit(permissions: PermissionManager, rel: str) -> str:
-    """L3：写/改文件成功后自动 git commit（如有仓库）。失败不影响主流程。"""
-    if permissions is None or permissions.level != PermissionLevel.L3:
-        return ""
-    try:
-        from .git_tools import GitCommitTool
-
-        r = GitCommitTool().execute({"message": f"{_AUTO_COMMIT_PREFIX}：{rel}"})
-        if r.get("ok"):
-            return f"\n[L3 自动提交] {r['output']}"
-        return ""
-    except Exception:
-        return ""
+# L3 自动提交改为任务完成时统一触发（见 Agent.finalize_commit），
+# 写/改文件阶段不做单步提交。
 
 
 class WriteFileTool(Tool):
@@ -74,8 +59,7 @@ class WriteFileTool(Tool):
                         "written": False,
                     }
                 self._write(path, content)
-                extra = _try_auto_commit(self.permissions, rel)
-                return {"ok": True, "output": f"已写入文件 {rel}（{len(content)} 字符）{extra}"}
+                return {"ok": True, "output": f"已写入文件 {rel}（{len(content)} 字符）"}
 
             # 无权限管理：直接写（原行为）
             self._write(path, content)
@@ -270,8 +254,7 @@ class EditFileTool(Tool):
                     "written": False,
                 }
             WriteFileTool._write(path, new_text)
-            extra = _try_auto_commit(self.permissions, rel)
-            return {"ok": True, "output": base_msg + extra}
+            return {"ok": True, "output": base_msg}
 
         WriteFileTool._write(path, new_text)
         return {"ok": True, "output": base_msg}

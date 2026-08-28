@@ -95,6 +95,24 @@ class Agent:
                 return "rejected"
         return "rejected"  # 无确认回调时默认拒绝（安全优先）
 
+    async def finalize_commit(self, task: str) -> str:
+        """L3：任务运行完成后自动提交全部改动（如有 git 仓库）。
+
+        返回提交说明文本；非 L3 / 非 git 仓库 / 无改动时返回空串（不阻塞任务）。
+        """
+        if self.permissions.level != PermissionLevel.L3:
+            return ""
+        try:
+            from .tools.git_tools import GitCommitTool
+
+            message = f"agent 任务完成：{task[:50]}"
+            r = GitCommitTool().execute({"message": message})
+            if r.get("ok"):
+                return r["output"]
+            return ""  # 非仓库或无可提交改动：静默跳过
+        except Exception:
+            return ""
+
     async def run(self, task: str) -> str:
         """执行任务，返回最终回复文本。"""
         try:

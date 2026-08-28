@@ -88,23 +88,29 @@ def main():
     check("L3 保留 git_commit", "git_commit" in names3)
 
     print("=" * 50)
-    print("[6] L3 写文件自动 git commit（临时仓库）")
+    print("[6] L3 任务结束时自动提交（临时仓库）")
+    import asyncio as _asyncio
+    from agent.agent import Agent
     git_ws = Path(_WS) / "git_repo"
     git_ws.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=git_ws)
     subprocess.run(["git", "config", "user.name", "test"], cwd=git_ws)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=git_ws)
     os.environ["WORKSPACE_DIR"] = str(git_ws)
-    perm3 = PermissionManager(PermissionLevel.L3)
-    writer3 = WriteFileTool(permissions=perm3)
-    r = writer3.execute({"path": "app.py", "content": "print('hi')\n"})
-    check("L3 写入成功", r["ok"])
-    check("自动提交提示", "L3 自动提交" in r["output"], r["output"][-60:])
+    # 模拟任务产物（等价于 agent 写完文件后的状态）
+    (git_ws / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    agent3 = Agent(permission_level=PermissionLevel.L3)
+    note = _asyncio.run(agent3.finalize_commit("实现一个简单脚本"))
+    check("L3 返回提交说明", "已提交" in note, note)
     log = subprocess.run(
         ["git", "log", "--oneline"], cwd=git_ws,
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
-    check("git 历史有提交", "自动提交" in (log.stdout or ""), (log.stdout or "").strip()[:60])
+    check("git 历史有提交", "agent 任务完成" in (log.stdout or ""), (log.stdout or "").strip()[:60])
+    # L2 不触发提交
+    agent2 = Agent(permission_level=PermissionLevel.L2)
+    note2 = _asyncio.run(agent2.finalize_commit("x"))
+    check("L2 不触发提交", note2 == "")
 
     shutil.rmtree(_WS, ignore_errors=True)
     print("=" * 50)
