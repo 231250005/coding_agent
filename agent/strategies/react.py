@@ -16,14 +16,26 @@ from ..events import DONE, ERROR, MESSAGE, THINKING, TOOL_CALL, TOOL_RESULT, mak
 from .base import AgentStrategy
 
 DEFAULT_MAX_ITERATIONS = 20
+# 评审 / 测试 轮次硬上限：防止模型陷入"评审→修改→再评审"或"测试→修改→再测试"的无限循环
+MAX_REVIEW_ROUNDS = 2
+MAX_TEST_ROUNDS = 2
 
 
 class ReActStrategy(AgentStrategy):
     name = "react"
     description = "规范化 ReAct 循环：思考 → 调用现有工具 → 观察结果 → 直到任务完成"
 
-    def __init__(self, max_iterations: int = DEFAULT_MAX_ITERATIONS):
+    def __init__(
+        self,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
+        max_review_rounds: int = MAX_REVIEW_ROUNDS,
+        max_test_rounds: int = MAX_TEST_ROUNDS,
+    ):
         self.max_iterations = max_iterations
+        self.max_review_rounds = max_review_rounds
+        self.max_test_rounds = max_test_rounds
+        self.review_calls = 0  # 本轮任务 code_review 已执行次数
+        self.test_calls = 0    # 本轮任务 run_tests 已执行次数
 
     async def run(self, task: str, agent: "Agent") -> str:
         """执行任务，返回最终回复文本。"""
@@ -53,11 +65,12 @@ class ReActStrategy(AgentStrategy):
                 }
                 messages.append(assistant_msg)
                 for tc in msg.tool_calls:
+                    name = tc.function.name
                     agent.emit(
                         make_event(
                             TOOL_CALL,
                             id=tc.id,
-                            name=tc.function.name,
+                            name=name,
                             args=tc.function.arguments,
                         )
                     )
@@ -66,8 +79,14 @@ class ReActStrategy(AgentStrategy):
                     except json.JSONDecodeError:
                         args = {}
                         agent.emit(make_event(ERROR, content=f"工具参数 JSON 解析失败：{tc.function.arguments}"))
-                    # 统一走注册表执行：未知工具名会返回失败结果（不崩溃）
-                    result = agent.registry.execute(tc.function.name, args)
+
+                    # 轮次硬控制：评审/测试各最多 N 轮，超限直接阻断并引导继续
+                    blocked = self._check_round_limit(name)
+                    if blocked:
+                        result = {"ok": False, "output": blocked}
+                    else:
+                        # 统一走注册表执行：未知工具名会返回失败结果（不崩溃）
+                        result = agent.registry.execute(name, args)
                     agent.emit(
                         make_event(
                             TOOL_RESULT,
@@ -95,3 +114,31 @@ class ReActStrategy(AgentStrategy):
         agent.emit(make_event(ERROR, content=f"达到最大迭代次数（{self.max_iterations}），任务中止"))
         agent.emit(make_event(DONE, iterations=iterations, llm_calls=agent.llm_calls))
         return "任务未完成：达到最大迭代次数，已强制停止。请考虑把任务拆小后再试。"
+
+    # ---------- 轮次硬控制 ----------
+
+    def _check_round_limit(self, tool_name: str) -> str | None:
+        """评审/测试工具的轮次上限检查。
+
+        返回 None 表示放行；返回文本表示阻断，该文本作为工具失败结果回给模型，
+        引导模型继续下一步而不是继续该工具的循环。
+        """
+        if tool_name == "code_review":
+            if self.review_calls >= self.max_review_rounds:
+                return (
+                    f"评审次数已达上限（{self.max_review_rounds} 次）。"
+                    f"请基于已有评审意见直接决定下一步：修复明显问题后继续测试，"
+                    f"或完成交付。不要再次调用 code_review。"
+                )
+            self.review_calls += 1
+            return None
+        if tool_name == "run_tests":
+            if self.test_calls >= self.max_test_rounds:
+                return (
+                    f"测试次数已达上限（{self.max_test_rounds} 次）。"
+                    f"请基于已有测试结果直接决定下一步：修复明显问题后再次验证，"
+                    f"或完成交付。不要再次调用 run_tests。"
+                )
+            self.test_calls += 1
+            return None
+        return None
