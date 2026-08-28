@@ -7,7 +7,7 @@
   ② LLM 摘要压缩最早的一段对话（保留任务主线）
 
 保护规则：system 消息永不压缩；最近 keep_recent 条消息永不压缩。
-阈值默认 100000（MAX_CONTEXT_TOKENS 环境变量可覆盖），常态不干预、长任务自动治理。
+阈值默认 20000（MAX_CONTEXT_TOKENS 环境变量可覆盖），常态不干预、长任务自动治理。
 """
 
 import os
@@ -59,8 +59,8 @@ class ContextManager:
         keep_recent: int = 10,
         max_summary_chars: int = 800,
     ):
-        # 阈值默认 100000（十万），可用 MAX_CONTEXT_TOKENS 环境变量覆盖
-        self.max_tokens = max_tokens or int(os.environ.get("MAX_CONTEXT_TOKENS", "100000"))
+        # 阈值默认 20000（两万），可用 MAX_CONTEXT_TOKENS 环境变量覆盖
+        self.max_tokens = max_tokens or int(os.environ.get("MAX_CONTEXT_TOKENS", "20000"))
         self.keep_recent = keep_recent
         self.max_summary_chars = max_summary_chars
 
