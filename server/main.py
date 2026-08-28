@@ -4,6 +4,7 @@
 业务接口（会话/变更/工作区）在后续版本补充。
 """
 
+import uvicorn
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -49,8 +50,6 @@ def health():
 
 def run(host: str = "127.0.0.1", port: int = 8000) -> None:
     """启动后端服务（python -m server.main 一键运行）。"""
-    import uvicorn
-
     print(f"🚀 Coding Agent Server: http://{host}:{port} （数据库: {database.db_name}）")
     print("   健康检查: GET /health")
     uvicorn.run(app, host=host, port=port)
