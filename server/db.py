@@ -7,8 +7,10 @@
 """
 
 import os
+from pathlib import Path
 
 import pymysql
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker
@@ -18,6 +20,9 @@ from .base import Base
 from .schema import apply_migrations
 
 DB_NAME = "coding_agent"
+
+# 加载项目根目录的 .env（凭据统一走环境变量或未入库的 .env 文件）
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 def _config(key: str, default: str) -> str:
