@@ -48,7 +48,7 @@ class ReActStrategy(AgentStrategy):
         while iterations < self.max_iterations:
             iterations += 1
             resp = await agent.call_llm(
-                messages, tools=agent.registry.schemas()
+                messages, tools=agent.tool_schemas()
             )
             msg = resp.choices[0].message
 
@@ -84,9 +84,22 @@ class ReActStrategy(AgentStrategy):
                     blocked = self._check_round_limit(name)
                     if blocked:
                         result = {"ok": False, "output": blocked}
+                    elif not agent.is_tool_allowed(name):
+                        result = {"ok": False, "output": f"当前权限级别不允许使用 {name} 工具（仅 L3 可用 git 操作）。"}
                     else:
                         # 统一走注册表执行：未知工具名会返回失败结果（不崩溃）
                         result = agent.registry.execute(name, args)
+
+                    # L1 权限：软修改等待用户确认（暂停循环）
+                    pending_id = result.get("pending_change")
+                    if pending_id:
+                        change = agent.permissions.get(pending_id)
+                        if change is not None:
+                            decision = await agent.wait_confirmation(change)
+                            if decision == "confirmed":
+                                result["output"] += f"\n[用户已确认] {agent.permissions.confirm(pending_id)}"
+                            else:
+                                result["output"] += f"\n[用户已拒绝] {agent.permissions.reject(pending_id)}"
                     agent.emit(
                         make_event(
                             TOOL_RESULT,

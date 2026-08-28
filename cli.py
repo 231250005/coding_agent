@@ -2,6 +2,8 @@
 
 运行：python cli.py
 输入任务后 agent 将自主调用工具完成；输入 exit 退出。
+启动时选择三级权限：
+  1 = 软修改需确认（L1）  2 = 直接修改可撤销（L2）  3 = 自动 git 提交（L3）
 """
 
 import asyncio
@@ -22,6 +24,9 @@ def pretty_print(event: dict) -> None:
         mark = "✅" if event.get("ok") else "❌"
         output = event.get("output", "")
         print(f"📦 结果 {mark}: {output[:400]}{'...' if len(output) > 400 else ''}")
+    elif t == "request_confirmation":
+        print(f"\n🔔 等待确认 [{event['operation']}] {event['file_path']}")
+        print("   " + str(event.get("diff", "")).replace("\n", "\n   ")[:400])
     elif t == "message":
         print(f"\n💬 {event['content']}")
     elif t == "error":
@@ -30,12 +35,27 @@ def pretty_print(event: dict) -> None:
         print(f"\n🏁 任务结束（共 {event.get('iterations', '?')} 轮循环）")
 
 
+async def cli_confirm(change) -> str:
+    """L1 权限的用户确认交互。"""
+    print(f"\n🔔 需要确认：{change.operation} {change.file_path}")
+    print("   变更预览：")
+    print("   " + change.diff_preview.replace("\n", "\n   ")[:400])
+    ans = input("   确认应用？(y/N): ").strip().lower()
+    return "confirmed" if ans == "y" else "rejected"
+
+
 async def main() -> None:
     print(f"CodeAgent CLI（策略: {', '.join(list_strategies())}）")
-    print("输入编程任务，agent 将自主完成；输入 exit 退出。")
+    print("权限级别：1=软修改需确认 / 2=直接修改可撤销 / 3=自动git提交（默认）")
+    try:
+        level_input = input("选择权限级别 [1/2/3]（回车默认 3）: ").strip()
+        level = int(level_input) if level_input else 3
+    except (ValueError, EOFError, KeyboardInterrupt):
+        level = 3
     print("-" * 50)
+    print(f"已选择权限级别 L{level}。输入编程任务，agent 将自主完成；输入 exit 退出。")
 
-    agent = Agent(on_event=pretty_print)
+    agent = Agent(on_event=pretty_print, permission_level=level, confirm_callback=cli_confirm)
     while True:
         try:
             task = input("\n>>> ").strip()

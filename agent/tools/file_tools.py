@@ -1,7 +1,32 @@
-"""文件操作类工具：read_file / write_file / edit_file。"""
+"""文件操作类工具：read_file / write_file / edit_file。
 
+感知三级权限（见 agent/permissions.py）：
+- L1：写操作进入 pending 队列等待用户确认，不落盘；read_file 读取 pending 虚拟内容
+- L2：直接落盘 + 记录变更（可撤销）
+- L3：同 L2 + 写改成功后自动 git commit（如有仓库）
+"""
+
+from ..permissions import PermissionLevel, PermissionManager
 from ..sandbox import MAX_READ_LINES, get_workspace, safe_join, truncate
 from .base import Tool
+
+# L3 自动 commit 的消息前缀
+_AUTO_COMMIT_PREFIX = "agent 自动提交"
+
+
+def _try_auto_commit(permissions: PermissionManager, rel: str) -> str:
+    """L3：写/改文件成功后自动 git commit（如有仓库）。失败不影响主流程。"""
+    if permissions is None or permissions.level != PermissionLevel.L3:
+        return ""
+    try:
+        from .git_tools import GitCommitTool
+
+        r = GitCommitTool().execute({"message": f"{_AUTO_COMMIT_PREFIX}：{rel}"})
+        if r.get("ok"):
+            return f"\n[L3 自动提交] {r['output']}"
+        return ""
+    except Exception:
+        return ""
 
 
 class WriteFileTool(Tool):
@@ -25,19 +50,46 @@ class WriteFileTool(Tool):
         "required": ["path", "content"],
     }
 
+    def __init__(self, permissions: PermissionManager | None = None):
+        self.permissions = permissions
+
     def execute(self, args: dict) -> dict:
         try:
             path = safe_join(str(args["path"]))
             content = str(args.get("content", ""))
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
             rel = path.relative_to(get_workspace()).as_posix()
+
+            # 权限模式：L1 软修改（等确认） / L2/L3 直接写 + 记录
+            if self.permissions is not None:
+                old_content = path.read_text(encoding="utf-8") if path.is_file() else ""
+                change = self.permissions.add_change(rel, "write", old_content, content, path)
+                if self.permissions.level == PermissionLevel.L1:
+                    return {
+                        "ok": True,
+                        "output": (
+                            f"已暂存对 {rel} 的修改（等待用户确认，change_id={change.change_id}）。"
+                            f"用户确认后才真正写入。"
+                        ),
+                        "pending_change": change.change_id,
+                        "written": False,
+                    }
+                self._write(path, content)
+                extra = _try_auto_commit(self.permissions, rel)
+                return {"ok": True, "output": f"已写入文件 {rel}（{len(content)} 字符）{extra}"}
+
+            # 无权限管理：直接写（原行为）
+            self._write(path, content)
             return {
                 "ok": True,
                 "output": f"已写入文件 {rel}（{len(content)} 字符，{content.count(chr(10)) + 1} 行）",
             }
         except Exception as e:
             return {"ok": False, "output": f"写入失败：{e}"}
+
+    @staticmethod
+    def _write(path, content: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
 
 
 class ReadFileTool(Tool):
@@ -68,12 +120,23 @@ class ReadFileTool(Tool):
         "required": ["path"],
     }
 
+    def __init__(self, permissions: PermissionManager | None = None):
+        self.permissions = permissions
+
     def execute(self, args: dict) -> dict:
         try:
             path = safe_join(str(args["path"]))
-            if not path.is_file():
-                return {"ok": False, "output": f"文件不存在：{path.relative_to(get_workspace()).as_posix()}"}
-            lines = path.read_text(encoding="utf-8").splitlines()
+            rel = path.relative_to(get_workspace()).as_posix()
+            # L1 权限下：若该文件有 pending 变更，读取"虚拟内容"（待确认的新内容）
+            virtual = None
+            if self.permissions is not None and self.permissions.level == PermissionLevel.L1:
+                pending = self.permissions.latest_pending_for(rel)
+                if pending is not None:
+                    virtual = pending.new_content
+            if not path.is_file() and virtual is None:
+                return {"ok": False, "output": f"文件不存在：{rel}"}
+            text = virtual if virtual is not None else path.read_text(encoding="utf-8")
+            lines = text.splitlines()
 
             start = int(args.get("start_line") or 1)
             end = int(args.get("end_line") or len(lines))
@@ -121,6 +184,9 @@ class EditFileTool(Tool):
         "required": ["path", "old_string", "new_string"],
     }
 
+    def __init__(self, permissions: PermissionManager | None = None):
+        self.permissions = permissions
+
     def execute(self, args: dict) -> dict:
         try:
             path = safe_join(str(args["path"]))
@@ -135,14 +201,14 @@ class EditFileTool(Tool):
             # ── 第一层：精确子串匹配（最常用）──
             count = text.count(old_string)
             if count == 1:
-                return self._write_result(
+                return self._finalize(
                     path, text.replace(old_string, new_string),
                     *self._line_range(text, old_string), 1, replace_all=False,
                 )
             if count > 1 and not replace_all:
                 return self._ambiguous_error(text, count, first_pos=text.find(old_string), second_pos=text.find(old_string, text.find(old_string) + 1))
             if count > 1 and replace_all:
-                return self._write_result(
+                return self._finalize(
                     path, text.replace(old_string, new_string),
                     *self._line_range(text, old_string), count, replace_all=True,
                 )
@@ -177,13 +243,38 @@ class EditFileTool(Tool):
             else:
                 i = matches[0]
                 file_lines[i : i + len(old_lines)] = new_string.split("\n")
-            return self._write_result(
+            return self._finalize(
                 path, "\n".join(file_lines),
                 matches[0] + 1, matches[0] + len(old_lines),
-                "全部" if replace_all else 1, replace_all,
+                len(matches) if replace_all else 1, replace_all,
             )
         except Exception as e:
             return {"ok": False, "output": f"修改失败：{e}"}
+
+    # ── 写盘（感知权限） ──
+
+    def _finalize(self, path, new_text: str, first: int, last: int, count: int, replace_all: bool) -> dict:
+        """把编辑结果落盘。L1 走 pending 等待确认；L2/L3 直接写 + 记录；L3 自动 commit。"""
+        rel = path.relative_to(get_workspace()).as_posix()
+        count_txt = f"全部 {count} 处" if replace_all else f"{count} 处"
+        base_msg = f"已修改 {rel}（{count_txt}，原内容在第 {first}-{last} 行）"
+
+        if self.permissions is not None:
+            old_content = path.read_text(encoding="utf-8")
+            change = self.permissions.add_change(rel, "edit", old_content, new_text, path)
+            if self.permissions.level == PermissionLevel.L1:
+                return {
+                    "ok": True,
+                    "output": f"已暂存对 {rel} 的修改（等待用户确认，change_id={change.change_id}）。用户确认后才真正写入。",
+                    "pending_change": change.change_id,
+                    "written": False,
+                }
+            WriteFileTool._write(path, new_text)
+            extra = _try_auto_commit(self.permissions, rel)
+            return {"ok": True, "output": base_msg + extra}
+
+        WriteFileTool._write(path, new_text)
+        return {"ok": True, "output": base_msg}
 
     # ── 辅助 ──
 

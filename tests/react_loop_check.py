@@ -65,6 +65,12 @@ class FakeAgent:
         self.llm_calls += 1
         return await self.llm.chat_async(*a, **k)
 
+    def tool_schemas(self):
+        return []
+
+    def is_tool_allowed(self, name):
+        return True
+
     def emit(self, event):
         self.events.append(event)
 

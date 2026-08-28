@@ -18,6 +18,8 @@ TOOL_RESULT = "tool_result"
 MESSAGE = "message"
 ERROR = "error"
 DONE = "done"
+# 权限系统事件
+REQUEST_CONFIRMATION = "request_confirmation"  # L1 待确认变更（agent 暂停等待用户）
 
 # 事件回调：接收一个事件字典
 EventCallback = Callable[[Dict[str, Any]], None]
