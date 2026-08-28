@@ -13,7 +13,7 @@ from typing import Optional
 from openai import AsyncOpenAI, OpenAI
 
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-DEFAULT_MODEL = "qwen3.7-plus"  # 免费额度耗尽后切换；QWEN_MODEL 环境变量可覆盖
+DEFAULT_MODEL = "qwen3.7-plus-2026-05-26"  # 免费额度耗尽后切换；QWEN_MODEL 环境变量可覆盖
 MAX_RETRIES = 3
 MAX_TOKENS = 8192  # 单次生成上限，防止单次超长输出失控
 

@@ -6,9 +6,10 @@
 """
 
 from .base import Tool
-from .exec_tools import RunCommandTool
-from .explore_tools import ListDirTool
+from .exec_tools import RunCommandTool, RunPythonTool
+from .explore_tools import FindSymbolsTool, GlobTool, GrepTool, ListDirTool
 from .file_tools import EditFileTool, ReadFileTool, WriteFileTool
+from .git_tools import GitCommitTool, GitDiffTool, GitLogTool, GitStatusTool
 from .review_tools import CodeReviewTool
 from .test_tools import GenerateTestTool, RunTestsTool
 
@@ -55,9 +56,17 @@ def build_default_registry(llm=None) -> ToolRegistry:
         ReadFileTool(),
         EditFileTool(),
         RunCommandTool(),
+        RunPythonTool(),
         ListDirTool(),
+        GrepTool(),
+        GlobTool(),
+        FindSymbolsTool(),
         RunTestsTool(),
         GenerateTestTool(llm=llm),
+        GitStatusTool(),
+        GitDiffTool(),
+        GitCommitTool(),
+        GitLogTool(),
         CodeReviewTool(llm=llm),
     ):
         registry.register(tool)

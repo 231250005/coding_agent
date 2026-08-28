@@ -1,7 +1,8 @@
-"""执行类工具：run_command —— 在本地 shell 中运行命令。"""
+"""执行类工具：run_command（shell 命令）/ run_python（Python 片段）。"""
 
 import os
 import subprocess
+import sys
 
 from ..sandbox import DEFAULT_TIMEOUT, get_workspace, truncate
 from .base import Tool
@@ -73,3 +74,54 @@ class RunCommandTool(Tool):
             }
         except Exception as e:
             return {"ok": False, "output": f"命令执行失败：{e}", "exit_code": -1}
+
+
+class RunPythonTool(Tool):
+    name = "run_python"
+    description = (
+        "执行一段 Python 代码（不走 shell，无转义/注入风险）：直接传入代码字符串，"
+        "在子进程中运行并返回输出。用于快速验证算法片段、计算结果、测试小函数。"
+        "代码在工作区目录下运行，默认 30 秒超时。"
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "code": {
+                "type": "string",
+                "description": "要执行的 Python 代码字符串",
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "超时秒数，默认 30，最大 120",
+                "minimum": 1,
+                "maximum": 120,
+            },
+        },
+        "required": ["code"],
+    }
+
+    def execute(self, args: dict) -> dict:
+        code = str(args.get("code", "")).strip()
+        if not code:
+            return {"ok": False, "output": "代码不能为空"}
+        timeout = int(args.get("timeout") or 30)
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-c", code],
+                cwd=get_workspace(),
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+            )
+            output = (proc.stdout or "") + (proc.stderr or "")
+            if not output.strip():
+                output = f"(执行成功，退出码 {proc.returncode}，无输出)"
+            return {"ok": proc.returncode == 0, "output": truncate(output), "exit_code": proc.returncode}
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "output": f"代码执行超时（>{timeout} 秒），已终止", "exit_code": -1}
+        except Exception as e:
+            return {"ok": False, "output": f"执行失败：{e}", "exit_code": -1}

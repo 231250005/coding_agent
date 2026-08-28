@@ -174,10 +174,65 @@ def main():
     r = GenerateTestTool(llm=None).execute({"path": "no_such.py"})
     print("   ", r["ok"], "|", r["output"])
 
+    # ---------- 探索类新工具 ----------
+    print("=" * 50)
+    print("[24] grep 搜索（找 calc.py 中的 def add）")
+    r = reg.execute("grep", {"pattern": "def add", "file_glob": "*.py"})
+    print("   ", r["ok"], "|", r["output"].splitlines()[0] if r["ok"] else r["output"])
+
+    print("=" * 50)
+    print("[25] glob 文件模式匹配（**/*.py）")
+    r = reg.execute("glob", {"pattern": "**/*.py"})
+    print("   ", r["ok"], "| 匹配数 =", len(r["output"].splitlines()) - 1 if r["ok"] else r["output"])
+
+    print("=" * 50)
+    print("[26] find_symbols AST 符号定位（calc.py 中的函数）")
+    r = reg.execute("find_symbols", {"path": "calc.py"})
+    print("   ", r["ok"], "|", r["output"].splitlines()[1] if r["ok"] and len(r["output"].splitlines()) > 1 else r["output"])
+
+    print("=" * 50)
+    print("[27] run_python 片段执行（print(1+2)）")
+    r = reg.execute("run_python", {"code": "print(1 + 2)"})
+    print("   ", r["ok"], "|", r["output"].strip())
+
+    # ---------- git 四件套 ----------
+    print("=" * 50)
+    print("[28] git_status 非 git 仓库（期望 ok=False 友好提示）")
+    r = reg.execute("git_status", {})
+    print("   ", r["ok"], "|", r["output"][:60])
+
+    import subprocess as _sp
+    print("=" * 50)
+    print("    git init 临时仓库并配置用户…")
+    _sp.run(["git", "init", "-q"], cwd=_WS)
+    _sp.run(["git", "config", "user.name", "test"], cwd=_WS)
+    _sp.run(["git", "config", "user.email", "test@test.com"], cwd=_WS)
+
+    print("=" * 50)
+    print("[29] git_status（仓库已 init，有未跟踪文件）")
+    r = reg.execute("git_status", {})
+    print("   ", r["ok"], "|", r["output"].splitlines()[0])
+
+    print("=" * 50)
+    print("[30] git_commit 提交（全部改动）")
+    r = reg.execute("git_commit", {"message": "初始提交：测试文件"})
+    print("   ", r["ok"], "|", r["output"])
+
+    print("=" * 50)
+    print("[31] git_log 查看提交历史")
+    r = reg.execute("git_log", {})
+    print("   ", r["ok"], "|", r["output"].splitlines()[0])
+
+    print("=" * 50)
+    print("[32] git_diff 查看改动（修改 calc.py 后）")
+    reg.execute("write_file", {"path": "calc.py", "content": "def add(a, b):\n    return a + b + 1\n"})
+    r = reg.execute("git_diff", {})
+    print("   ", r["ok"], "| 含改动 =", "+" in (r["output"] or "") and "-" in (r["output"] or ""))
+
     # ---------- 清理 ----------
     shutil.rmtree(_WS, ignore_errors=True)
     print("=" * 50)
-    print("✅ 工具层全部验证通过（23 项，临时工作区已清理）")
+    print("✅ 工具层全部验证通过（32 项，临时工作区已清理）")
 
 
 if __name__ == "__main__":
