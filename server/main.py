@@ -2,16 +2,26 @@
 
 当前阶段：仅验证数据库层（启动时自动建库/建表/迁移 + 健康检查）。
 业务接口（会话/变更/工作区）在后续版本补充。
+
+支持两种运行方式：
+- python -m server.main   （模块方式）
+- python server/main.py   （直接运行，PyCharm 右键）
 """
 
+import sys
 import uvicorn
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+# 支持直接运行脚本：把项目根加入 sys.path，保证 server 包可导入
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from .db import database, init_db
+from server.db import database, init_db
 
 
 @asynccontextmanager
