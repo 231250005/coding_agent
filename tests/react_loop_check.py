@@ -71,6 +71,9 @@ class FakeAgent:
     def is_tool_allowed(self, name):
         return True
 
+    async def finalize_commit(self, task):
+        return ""  # mock：不触发提交
+
     def emit(self, event):
         self.events.append(event)
 
