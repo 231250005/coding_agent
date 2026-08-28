@@ -54,15 +54,15 @@ class GrepTool(Tool):
     description = (
         "在工作区文件中搜索文本/正则，返回 文件:行号:匹配行。"
         "用于定位关键字（如函数调用处、报错信息、TODO）。"
-        "pattern 为 Python 正则；path 可限定子目录；file_glob 可限定文件类型（如 *.py）。"
-        "自动跳过 .git/缓存/依赖目录。"
+        "pattern 为 Python 正则；path 可为文件或目录（限定搜索范围）；"
+        "file_glob 可限定文件类型（如 *.py）。自动跳过 .git/缓存/依赖目录。"
     )
     parameters = {
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "要搜索的正则表达式，如 def add|TODO"},
-            "path": {"type": "string", "description": "限定搜索的目录（相对工作区，可选）"},
-            "file_glob": {"type": "string", "description": "限定文件类型（如 *.py、*.md，可选）"},
+            "path": {"type": "string", "description": "要搜索的文件或目录（相对工作区，可选）"},
+            "file_glob": {"type": "string", "description": "限定文件类型（如 *.py、*.md，可选；仅目录搜索时生效）"},
         },
         "required": ["pattern"],
     }
@@ -71,8 +71,6 @@ class GrepTool(Tool):
         try:
             pattern = str(args["pattern"])
             base = safe_join(str(args.get("path") or "."))
-            if not base.is_dir():
-                return {"ok": False, "output": f"目录不存在：{args.get('path')}"}
             file_glob = str(args.get("file_glob") or "*")
 
             try:
@@ -81,27 +79,38 @@ class GrepTool(Tool):
                 return {"ok": False, "output": f"正则表达式无效：{e}"}
 
             results = []
-            for p in base.rglob(file_glob):
-                if not p.is_file() or any(part in _SKIP_DIRS for part in p.parts):
-                    continue
-                try:
-                    text = p.read_text(encoding="utf-8")
-                except (UnicodeDecodeError, OSError):
-                    continue
-                for lineno, line in enumerate(text.splitlines(), 1):
-                    if regex.search(line):
-                        rel = p.relative_to(get_workspace()).as_posix()
-                        results.append(f"{rel}:{lineno}: {line.strip()[:120]}")
-                        if len(results) >= MAX_GREP_RESULTS:
-                            break
-                if len(results) >= MAX_GREP_RESULTS:
-                    break
+            if base.is_file():
+                # path 是文件：直接搜索该文件
+                self._search_file(base, regex, results)
+            elif base.is_dir():
+                for p in base.rglob(file_glob):
+                    if not p.is_file() or any(part in _SKIP_DIRS for part in p.parts):
+                        continue
+                    self._search_file(p, regex, results)
+                    if len(results) >= MAX_GREP_RESULTS:
+                        break
+            else:
+                return {"ok": False, "output": f"路径不存在：{args.get('path')}"}
 
             if not results:
                 return {"ok": True, "output": f"未找到匹配「{pattern}」的内容。"}
             return {"ok": True, "output": truncate(f"找到 {len(results)} 处匹配：\n" + "\n".join(results))}
         except Exception as e:
             return {"ok": False, "output": f"搜索失败：{e}"}
+
+    @staticmethod
+    def _search_file(path: Path, regex: "re.Pattern", results: list) -> None:
+        """在单个文件中搜索并追加匹配行。"""
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            return
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if regex.search(line):
+                rel = path.relative_to(get_workspace()).as_posix()
+                results.append(f"{rel}:{lineno}: {line.strip()[:120]}")
+                if len(results) >= MAX_GREP_RESULTS:
+                    break
 
 
 class GlobTool(Tool):
