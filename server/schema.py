@@ -13,6 +13,11 @@ from sqlalchemy.sql.schema import Column
 
 from .base import Base
 
+# 废弃列清理：Model 中已移除的历史字段（启动时自动 DROP COLUMN）
+_DROPPED_COLUMNS: dict[str, list[str]] = {
+    "sessions": ["strategy", "status"],
+}
+
 
 def _column_ddl(col: Column, engine: Engine) -> str:
     """手动拼列的 ADD COLUMN 片段（类型/非空/默认值）。"""
@@ -48,8 +53,17 @@ def sync_schema(engine: Engine) -> None:
             table.create(engine)
             continue
 
-        # 已有表：补齐缺失列（Model 定义了但库中没有）
+        # 已有表：比对列
         existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+
+        # 清理废弃列（Model 已移除、明确声明废弃的字段；MySQL 不支持 IF EXISTS，先查存在性）
+        for col_name in _DROPPED_COLUMNS.get(table.name, []):
+            if col_name in existing_cols:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE `{table.name}` DROP COLUMN `{col_name}`"))
+                existing_cols.discard(col_name)
+
+        # 补齐缺失列（Model 定义了但库中没有）
         missing_cols = [c for c in table.columns if c.name not in existing_cols]
         if missing_cols:
             with engine.begin() as conn:

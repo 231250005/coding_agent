@@ -37,11 +37,10 @@
 - 权限是**每轮对话**的属性：每次 `chat` 请求携带 `permission_level`
 - 文件变更记录**会话级累积**，同一会话先后用不同权限产生的变更互不干扰
 
-### 1.3 会话状态机
+### 1.3 会话说明
 
-```
-created → running（收到 chat）→ done / interrupted（stop 或异常）
-```
+- 会话可**置顶**（is_pinned）与**重命名**（title），列表按"置顶优先 + 最近更新"排序
+- 任务默认执行到完成（不提供中断接口）；agent 内置迭代上限与预算护栏兜底
 
 ---
 
@@ -50,12 +49,12 @@ created → running（收到 chat）→ done / interrupted（stop 或异常）
 | # | 方法 | 路径 | 功能 |
 |---|---|---|---|
 | 1 | POST | `/api/sessions` | 创建会话 |
-| 2 | GET | `/api/sessions` | 会话列表 |
-| 3 | GET | `/api/sessions/{id}` | 会话详情 |
-| 4 | DELETE | `/api/sessions/{id}` | 删除会话 |
-| 5 | POST | `/api/sessions/{id}/chat` | 发送任务（每轮带权限） |
-| 6 | GET | `/api/sessions/{id}/events` | SSE 事件流（运行中实时输出） |
-| 7 | POST | `/api/sessions/{id}/stop` | 停止当前任务 |
+| 2 | GET | `/api/sessions` | 会话列表（置顶优先 + 最近更新） |
+| 3 | PUT | `/api/sessions/{id}/pin` | 切换置顶 |
+| 4 | PUT | `/api/sessions/{id}/rename` | 重命名会话 |
+| 5 | DELETE | `/api/sessions/{id}` | 删除会话 |
+| 6 | POST | `/api/sessions/{id}/chat` | 发送任务（每轮带权限，触发 SSE 运行） |
+| 7 | GET | `/api/sessions/{id}/events` | SSE 事件流（运行中实时输出） |
 | 8 | GET | `/api/sessions/{id}/messages` | 对话历史 |
 | 9 | GET | `/api/sessions/{id}/changes` | 文件变更列表（含前后对比） |
 | 10 | POST | `/api/changes/{change_id}/confirm` | L1 确认应用变更 |
@@ -94,9 +93,9 @@ created → running（收到 chat）→ done / interrupted（stop 或异常）
     "id": 1,
     "title": "俄罗斯方块开发",
     "workspace": "D:/coding_agent/coding_agent",
-    "strategy": "react",
-    "status": "created",
-    "created_at": "2026-08-28 22:00:00"
+    "is_pinned": false,
+    "created_at": "2026-08-28 22:00:00",
+    "updated_at": "2026-08-28 22:00:00"
   }
 }
 ```
@@ -107,6 +106,8 @@ created → running（收到 chat）→ done / interrupted（stop 或异常）
 
 `GET /api/sessions`
 
+**说明**：按"置顶优先 + 最近更新"排序返回。
+
 **响应示例（200）**
 ```json
 {
@@ -114,10 +115,17 @@ created → running（收到 chat）→ done / interrupted（stop 或异常）
   "message": "ok",
   "data": [
     {
+      "id": 2,
+      "title": "待办事项工具",
+      "workspace": "D:/coding_agent/coding_agent",
+      "is_pinned": true,
+      "updated_at": "2026-08-28 22:10:00"
+    },
+    {
       "id": 1,
       "title": "俄罗斯方块开发",
       "workspace": "D:/coding_agent/coding_agent",
-      "status": "done",
+      "is_pinned": false,
       "updated_at": "2026-08-28 22:05:00"
     }
   ]
@@ -126,26 +134,27 @@ created → running（收到 chat）→ done / interrupted（stop 或异常）
 
 ---
 
-### 3.3 会话详情
+### 3.3 切换置顶
 
-`GET /api/sessions/{id}`
+`PUT /api/sessions/{id}/pin`
 
-**路径参数**：`id`（int，会话 id）
+**请求体**
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| is_pinned | boolean | 是 | true = 置顶，false = 取消置顶 |
+
+**请求示例**
+```json
+{ "is_pinned": true }
+```
 
 **响应示例（200）**
 ```json
 {
   "code": 0,
   "message": "ok",
-  "data": {
-    "id": 1,
-    "title": "俄罗斯方块开发",
-    "workspace": "D:/coding_agent/coding_agent",
-    "strategy": "react",
-    "status": "running",
-    "created_at": "2026-08-28 22:00:00",
-    "updated_at": "2026-08-28 22:03:12"
-  }
+  "data": { "id": 1, "is_pinned": true }
 }
 ```
 
@@ -153,7 +162,35 @@ created → running（收到 chat）→ done / interrupted（stop 或异常）
 
 ---
 
-### 3.4 删除会话
+### 3.4 重命名会话
+
+`PUT /api/sessions/{id}/rename`
+
+**请求体**
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| title | string | 是 | 新的会话标题 |
+
+**请求示例**
+```json
+{ "title": "俄罗斯方块（pygame 版）" }
+```
+
+**响应示例（200）**
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": { "id": 1, "title": "俄罗斯方块（pygame 版）" }
+}
+```
+
+**错误**：404 `{"code": 404, "message": "会话不存在：1"}`
+
+---
+
+### 3.5 删除会话
 
 `DELETE /api/sessions/{id}`
 
@@ -164,7 +201,7 @@ created → running（收到 chat）→ done / interrupted（stop 或异常）
 
 ---
 
-### 3.5 发送任务（每轮对话，带权限）
+### 3.6 发送任务（每轮对话，带权限）
 
 `POST /api/sessions/{id}/chat`
 
@@ -198,12 +235,13 @@ created → running（收到 chat）→ done / interrupted（stop 或异常）
 ```
 
 **注意**：
-- 同一会话同时只能运行一个任务；运行中再次 chat 返回 400 `{"message": "任务运行中，请先停止"}`
+- 同一会话同时只能运行一个任务；运行中再次 chat 返回 400 `{"message": "任务运行中"}`
 - 本轮任务结束后，会话历史中的该条 user 消息会记录 `permission_level`（前端展示"L2 任务"）
+- 任务默认执行到完成（agent 内置迭代上限与预算护栏兜底，无需中断）
 
 ---
 
-### 3.6 SSE 事件流（运行中实时输出）
+### 3.7 SSE 事件流（运行中实时输出）
 
 `GET /api/sessions/{id}/events`
 
@@ -242,19 +280,6 @@ data: {"type":"message","content":"游戏已完成，文件 game.py（50 行）.
 
 data: {"type":"task_done","iterations":8,"llm_calls":10}
 ```
-
----
-
-### 3.7 停止任务
-
-`POST /api/sessions/{id}/stop`
-
-**响应示例（200）**
-```json
-{ "code": 0, "message": "ok", "data": { "status": "interrupted" } }
-```
-
-**注意**：停止后 agent 优雅中断（不产生新的文件变更）；SSE 连接关闭。
 
 ---
 
