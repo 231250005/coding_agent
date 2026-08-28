@@ -31,6 +31,11 @@ def pretty_print(event: dict) -> None:
         print(f"\n📄 上下文已压缩：释放 {event.get('released', 0)} token"
               f"（裁剪工具结果 {event.get('truncated', 0)} 条"
               f"{', 摘要历史 ' + str(event.get('summarized')) + ' 条' if event.get('summarized') else ''}）")
+    elif t == "usage":
+        prompt = event.get("prompt_tokens", "?")
+        comp = event.get("completion_tokens", "?")
+        ctx = event.get("context_tokens", "?")
+        print(f"   📊 调用#{event.get('llm_calls', '?')} | 上下文 {ctx} token | 本轮 {prompt}+{comp} token")
     elif t == "message":
         print(f"\n💬 {event['content']}")
     elif t == "error":

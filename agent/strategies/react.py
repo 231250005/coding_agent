@@ -12,7 +12,7 @@
 
 import json
 
-from ..events import CONTEXT_COMPRESSED, DONE, ERROR, MESSAGE, THINKING, TOOL_CALL, TOOL_RESULT, make_event
+from ..events import CONTEXT_COMPRESSED, DONE, ERROR, MESSAGE, THINKING, TOOL_CALL, TOOL_RESULT, USAGE, make_event
 from .base import AgentStrategy
 
 DEFAULT_MAX_ITERATIONS = 20
@@ -59,6 +59,15 @@ class ReActStrategy(AgentStrategy):
             resp = await agent.call_llm(
                 messages, tools=agent.tool_schemas()
             )
+            # 用量统计：真实 token（API usage）+ 当前上下文估算 + 累计调用次数
+            usage = getattr(resp, "usage", None)
+            agent.emit(make_event(
+                USAGE,
+                llm_calls=agent.llm_calls,
+                context_tokens=agent.context.count_tokens(messages),
+                prompt_tokens=getattr(usage, "prompt_tokens", None),
+                completion_tokens=getattr(usage, "completion_tokens", None),
+            ))
             msg = resp.choices[0].message
 
             # 模型先给出过程说明（思考/计划），转发给前端展示

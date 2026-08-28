@@ -22,6 +22,7 @@ DONE = "done"
 REQUEST_CONFIRMATION = "request_confirmation"  # L1 待确认变更（agent 暂停等待用户）
 # 上下文管理事件
 CONTEXT_COMPRESSED = "context_compressed"      # 上下文超限已压缩（释放 token 数）
+USAGE = "usage"                                # 每轮 LLM 调用后的用量统计（真实 token + 上下文估算）
 
 # 事件回调：接收一个事件字典
 EventCallback = Callable[[Dict[str, Any]], None]
