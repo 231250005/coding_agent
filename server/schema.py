@@ -1,37 +1,68 @@
-"""迁移执行器：表结构变更（ALTER）的版本化自动应用。
+"""表结构自动同步：启动时比对 Model 定义与实际库表，自动补齐差异。
 
-- 建表由 SQLAlchemy create_all 完成（Model 定义 → 自动 DDL）
-- 本模块只负责"已有表的结构变更"：schema_migrations 记录已应用版本，
-  每次启动按版本号顺序执行未应用的变更（每个版本只执行一次）
+- 新表：自动创建（按 Model 定义生成 DDL）
+- 已有表：对比列与索引，缺失的自动 ALTER TABLE ADD COLUMN / CREATE INDEX
+- 只增不减（不删除列/表，避免误删数据；结构性变更如主键建议手动处理）
+- 无需版本记录表：每次启动以 Model 定义为唯一事实来源，幂等
 """
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from sqlalchemy.inspection import inspect
+from sqlalchemy.sql.schema import Column
 
-from .tables import MIGRATIONS
-
-_MIGRATIONS_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    version INT PRIMARY KEY,
-    applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-"""
+from .base import Base
 
 
-def apply_migrations(engine: Engine) -> None:
-    """按版本顺序应用未执行的表结构变更（幂等，可安全重复调用）。"""
-    with engine.begin() as conn:
-        conn.execute(text(_MIGRATIONS_TABLE_SQL))
-        applied = {
-            row[0]
-            for row in conn.execute(text("SELECT version FROM schema_migrations"))
-        }
-        for mig in MIGRATIONS:
-            if mig["version"] in applied:
-                continue
-            for sql in mig["sql"]:
-                conn.execute(text(sql))
-            conn.execute(
-                text("INSERT INTO schema_migrations (version) VALUES (:version)"),
-                {"version": mig["version"]},
-            )
+def _column_ddl(col: Column, engine: Engine) -> str:
+    """手动拼列的 ADD COLUMN 片段（类型/非空/默认值）。"""
+    dialect = engine.dialect
+    parts = [f"`{col.name}`", str(col.type.compile(dialect=dialect))]
+    if col.nullable is False:
+        parts.append("NOT NULL")
+    if col.server_default is not None:
+        default = col.server_default.arg
+        if isinstance(default, str):
+            default = f"'{default}'"
+        else:
+            default = str(default)  # 函数默认值如 now()
+        parts.append(f"DEFAULT {default}")
+    return " ".join(parts)
+
+
+def sync_schema(engine: Engine) -> None:
+    """启动时自动同步表结构（幂等，可安全重复调用）。"""
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+
+    # 清理旧版迁移机制的记录表（schema_migrations 已废弃）
+    if "schema_migrations" in existing_tables:
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS schema_migrations"))
+        inspector = inspect(engine)
+        existing_tables = set(inspector.get_table_names())
+
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            # 新表：按 Model 定义自动创建
+            table.create(engine)
+            continue
+
+        # 已有表：补齐缺失列（Model 定义了但库中没有）
+        existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+        missing_cols = [c for c in table.columns if c.name not in existing_cols]
+        if missing_cols:
+            with engine.begin() as conn:
+                for col in missing_cols:
+                    col_ddl = _column_ddl(col, engine)
+                    conn.execute(text(f"ALTER TABLE `{table.name}` ADD COLUMN {col_ddl}"))
+
+        # 补齐缺失索引（Model 定义了但库中没有）
+        existing_idx = {ix["name"] for ix in inspector.get_indexes(table.name)}
+        for index in table.indexes:
+            if index.name and index.name not in existing_idx:
+                col_names = ", ".join(f"`{c.name}`" for c in index.columns)
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(f"CREATE INDEX `{index.name}` ON `{table.name}` ({col_names})")
+                    )

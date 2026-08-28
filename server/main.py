@@ -41,15 +41,10 @@ def health():
         session = database.get_session()
         with session:
             tables = [row[0] for row in session.execute(text("SHOW TABLES")).fetchall()]
-            migrations = [
-                row[0]
-                for row in session.execute(text("SELECT version FROM schema_migrations")).fetchall()
-            ]
         return {
             "status": "ok",
             "database": database.db_name,
             "tables": tables,
-            "migrations": migrations,
         }
     except Exception as e:
         return JSONResponse(

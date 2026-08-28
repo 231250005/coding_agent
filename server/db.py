@@ -16,8 +16,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker
 
 from . import tables  # noqa: F401  导入以注册所有 Model 到 Base.metadata
-from .base import Base
-from .schema import apply_migrations
+from .schema import sync_schema
 
 DB_NAME = "coding_agent"
 
@@ -54,10 +53,8 @@ class Database:
             return
         self._create_database_if_missing()
         self._create_engine()
-        # 自动建表：由 Model 的 Python 数据结构生成 DDL，创建不存在的表
-        Base.metadata.create_all(self.engine)
-        # 表结构变更（ALTER）按版本应用
-        apply_migrations(self.engine)
+        # 表结构自动同步：以 Model 定义为准，补齐缺失的表/列/索引
+        sync_schema(self.engine)
         self._initialized = True
 
     def _create_database_if_missing(self) -> None:
