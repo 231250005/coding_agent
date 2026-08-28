@@ -75,6 +75,11 @@ class FakeAgent:
         self.events.append(event)
 
 
+from agent.context import ContextManager  # noqa: E402
+
+FakeAgent.context = ContextManager(max_tokens=100000)
+
+
 async def run_scenario(responses, max_review=2, max_test=2):
     agent = FakeAgent(FakeLLM(responses))
     strategy = ReActStrategy(max_review_rounds=max_review, max_test_rounds=max_test)

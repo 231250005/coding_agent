@@ -12,7 +12,7 @@
 
 import json
 
-from ..events import DONE, ERROR, MESSAGE, THINKING, TOOL_CALL, TOOL_RESULT, make_event
+from ..events import CONTEXT_COMPRESSED, DONE, ERROR, MESSAGE, THINKING, TOOL_CALL, TOOL_RESULT, make_event
 from .base import AgentStrategy
 
 DEFAULT_MAX_ITERATIONS = 20
@@ -47,6 +47,15 @@ class ReActStrategy(AgentStrategy):
 
         while iterations < self.max_iterations:
             iterations += 1
+            # 上下文管理：超限时压缩（裁剪旧工具结果 / LLM 摘要）
+            messages, ctx_stats = await agent.context.ensure_within_budget(messages, agent.call_llm)
+            if ctx_stats:
+                agent.emit(make_event(
+                    CONTEXT_COMPRESSED,
+                    released=ctx_stats.get("released", 0),
+                    truncated=ctx_stats.get("truncated", 0),
+                    summarized=ctx_stats.get("summarized", 0),
+                ))
             resp = await agent.call_llm(
                 messages, tools=agent.tool_schemas()
             )

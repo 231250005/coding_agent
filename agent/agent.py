@@ -11,6 +11,7 @@
 import os
 from typing import Awaitable, Callable, Optional
 
+from .context import ContextManager
 from .events import ERROR, DONE, REQUEST_CONFIRMATION, make_event
 from .llm import LLMClient
 from .permissions import FileChange, PermissionLevel, PermissionManager
@@ -48,6 +49,8 @@ class Agent:
         self.permissions = PermissionManager(PermissionLevel(permission_level))
         self.confirm_callback = confirm_callback
         self._inject_permissions()
+        # 上下文管理（token 估算 + 长对话压缩）
+        self.context = ContextManager()
 
     def _inject_permissions(self) -> None:
         """给文件类工具注入 PermissionManager（write/edit/read 感知权限）。"""

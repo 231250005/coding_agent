@@ -27,6 +27,10 @@ def pretty_print(event: dict) -> None:
     elif t == "request_confirmation":
         print(f"\n🔔 等待确认 [{event['operation']}] {event['file_path']}")
         print("   " + str(event.get("diff", "")).replace("\n", "\n   ")[:400])
+    elif t == "context_compressed":
+        print(f"\n📄 上下文已压缩：释放 {event.get('released', 0)} token"
+              f"（裁剪工具结果 {event.get('truncated', 0)} 条"
+              f"{', 摘要历史 ' + str(event.get('summarized')) + ' 条' if event.get('summarized') else ''}）")
     elif t == "message":
         print(f"\n💬 {event['content']}")
     elif t == "error":
