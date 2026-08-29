@@ -25,6 +25,7 @@ from sqlalchemy import text
 from server.db import database, init_db
 from server.routes.changes import router as changes_router
 from server.routes.chat import router as chat_router
+from server.routes.fs import router as fs_router
 from server.routes.sessions import router as sessions_router
 
 
@@ -51,6 +52,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 app.include_router(sessions_router)
 app.include_router(chat_router)
 app.include_router(changes_router)
+app.include_router(fs_router)
 
 
 @app.get("/health")
