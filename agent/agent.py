@@ -123,12 +123,15 @@ class Agent:
         except Exception:
             return ""
 
-    async def run(self, task: str) -> str:
-        """执行任务，返回最终回复文本。"""
+    async def run(self, task: str, history: Optional[list] = None) -> str:
+        """执行任务，返回最终回复文本。
+
+        history: 跨任务对话历史（多轮记忆），由 server 层从会话记录加载。
+        """
         # 设置当前任务工作区（asyncio 任务隔离，多会话互不干扰）
         set_workspace(self.workspace)
         try:
-            return await self.strategy.run(task, self)
+            return await self.strategy.run(task, self, history=history)
         except Exception as e:
             self.emit(make_event(ERROR, content=f"agent 运行异常：{type(e).__name__}: {e}"))
             self.emit(make_event(DONE, iterations=0, llm_calls=self.llm_calls))

@@ -46,3 +46,26 @@ class MessageTable(Base):
             .order_by(MessageTable.id.asc())
             .limit(limit)
         ).scalars().all()
+
+    @staticmethod
+    def get_latest_summary(session, session_id: int) -> "MessageTable | None":
+        """最新一条会话摘要（role='summary'）。"""
+        from sqlalchemy import select
+
+        return session.execute(
+            select(MessageTable)
+            .where(MessageTable.session_id == session_id, MessageTable.role == "summary")
+            .order_by(MessageTable.id.desc())
+            .limit(1)
+        ).scalars().first()
+
+    @staticmethod
+    def list_after(session, session_id: int, after_id: int) -> list["MessageTable"]:
+        """id 大于 after_id 的全部消息（摘要之后的轮次）。"""
+        from sqlalchemy import select
+
+        return session.execute(
+            select(MessageTable)
+            .where(MessageTable.session_id == session_id, MessageTable.id > after_id)
+            .order_by(MessageTable.id.asc())
+        ).scalars().all()

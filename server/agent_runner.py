@@ -10,6 +10,7 @@ import asyncio
 from typing import Optional
 
 from agent.agent import Agent
+from agent.llm import LLMClient
 from agent.permissions import FileChange, PermissionLevel, PermissionManager
 
 from .tables.file_changes import FileChangeTable
@@ -17,6 +18,26 @@ from .tables.messages import MessageTable
 
 # L1 确认超时（秒）：用户未确认则自动拒绝，避免 agent 无限挂起
 CONFIRM_TIMEOUT = 300
+# 跨任务摘要触发阈值：未摘要的轮次数（user 消息数）超过该值才触发增量摘要
+SUMMARY_TRIGGER_ROUNDS = 10
+# 摘要时每条消息的内容预览长度
+SUMMARY_MSG_PREVIEW = 500
+
+SUMMARIZE_PROMPT = """你是对话历史记录员。请把新增的对话合并进已有摘要，生成更新后的会话摘要。
+
+旧摘要（可能为空）：
+{old_summary}
+
+新增对话（最近几轮，未摘要的部分）：
+{new_messages}
+
+要求：
+1. 输出更新后的完整摘要（不是只写新增部分）
+2. 保留关键信息：已完成的工作、产出文件路径、函数/命令名、关键决策、用户偏好、测试结果、错误信息
+3. 按结构组织：已完成 / 当前状态 / 下一步
+4. 只输出摘要本身，不要解释
+
+新摘要："""
 
 
 class SessionRunner:
@@ -50,11 +71,17 @@ class SessionRunner:
         return self._task is not None and not self._task.done()
 
     def run_task(self, content: str, permission_level: int) -> None:
-        """启动新任务（权限每轮切换；运行中再启动抛 RuntimeError）。"""
+        """启动新任务（权限每轮切换；运行中再启动抛 RuntimeError）。
+
+        每轮加载跨任务历史（最新摘要 + 其后轮次），实现多轮对话记忆。
+        """
         if self.is_running():
             raise RuntimeError("任务运行中")
         self._task_seq += 1
         self.permissions.level = PermissionLevel(permission_level)
+        history = self._load_history()
+        if history:
+            history = history[:-1]  # 去掉当前轮的 user（chat 接口已入库）
         agent = Agent(
             permission_level=permission_level,
             permissions=self.permissions,
@@ -63,12 +90,16 @@ class SessionRunner:
             on_event=self.emit,
             workspace=self.workspace,
         )
-        self._task = asyncio.create_task(self._run_agent(agent, content, permission_level))
+        self._task = asyncio.create_task(
+            self._run_agent(agent, content, permission_level, history)
+        )
 
-    async def _run_agent(self, agent: Agent, content: str, permission_level: int) -> None:
+    async def _run_agent(
+        self, agent: Agent, content: str, permission_level: int, history: list | None
+    ) -> None:
         self.emit({"type": "task_start", "task_id": self._task_seq, "permission_level": permission_level})
         try:
-            result = await agent.run(content)
+            result = await agent.run(content, history=history)
             # 存 assistant 最终回复（对话历史）
             with self.session_factory() as db:
                 MessageTable.add(db, self.session_id, "assistant", result, permission_level)
@@ -76,6 +107,61 @@ class SessionRunner:
             self.emit({"type": "error", "content": f"{type(e).__name__}: {e}"})
         # 任务结束信号
         self.emit({"type": "task_done", "task_id": self._task_seq})
+        # 跨任务摘要：未摘要轮次超阈值时增量合并历史
+        self._maybe_summarize()
+
+    # ---------- 跨任务上下文（多轮记忆） ----------
+
+    def _load_history(self) -> list[dict]:
+        """加载对话历史：最新摘要（如有）+ 摘要之后的所有 user/assistant。"""
+        with self.session_factory() as db:
+            summary = MessageTable.get_latest_summary(db, self.session_id)
+            after_id = summary.id if summary else 0
+            rows = MessageTable.list_after(db, self.session_id, after_id)
+        history: list[dict] = []
+        if summary is not None:
+            history.append({"role": "user", "content": f"[历史摘要] {summary.content}"})
+        for row in rows:
+            if row.role in ("user", "assistant"):
+                history.append({"role": row.role, "content": row.content})
+        return history
+
+    def _maybe_summarize(self) -> None:
+        """未摘要轮次（summary 之后的 user 消息数）超阈值 → 增量摘要。"""
+        with self.session_factory() as db:
+            summary = MessageTable.get_latest_summary(db, self.session_id)
+            after_id = summary.id if summary else 0
+            rows = MessageTable.list_after(db, self.session_id, after_id)
+            rounds = sum(1 for r in rows if r.role == "user")
+        if rounds <= SUMMARY_TRIGGER_ROUNDS:
+            return
+        try:
+            self._run_summarize(summary, rows)
+        except Exception as e:
+            self.emit({"type": "error", "content": f"会话摘要失败：{e}"})
+
+    def _run_summarize(self, summary, rows: list) -> None:
+        """LLM 增量合并：旧摘要 + 新增轮次 → 新摘要（插入 role='summary' 消息）。"""
+        llm = _get_llm()
+        old_summary = summary.content if summary else "（无）"
+        new_messages = "\n".join(
+            f"[{r.role}] {(r.content or '')[:SUMMARY_MSG_PREVIEW]}" for r in rows
+        )
+        resp = llm.chat(
+            [
+                {"role": "system", "content": "你是对话历史记录员。"},
+                {"role": "user", "content": SUMMARIZE_PROMPT.format(
+                    old_summary=old_summary, new_messages=new_messages
+                )},
+            ],
+            temperature=0.2,
+        )
+        new_summary = (resp.choices[0].message.content or "").strip()
+        if not new_summary:
+            return
+        with self.session_factory() as db:
+            MessageTable.add(db, self.session_id, "summary", new_summary, 3)
+        self.emit({"type": "message", "content": f"[会话摘要已更新]"})
 
     # ---------- L1 确认 ----------
 
@@ -125,6 +211,17 @@ class SessionRunner:
             elif action == "revert":
                 FileChangeTable.update_status(db, change.change_id, "reverted", reverted=True)
         return None
+
+
+# 摘要用的 LLM 客户端（模块级缓存，复用连接）
+_llm: Optional[LLMClient] = None
+
+
+def _get_llm() -> LLMClient:
+    global _llm
+    if _llm is None:
+        _llm = LLMClient()
+    return _llm
 
 
 # 会话运行器注册表（模块级单例容器）

@@ -37,12 +37,16 @@ class ReActStrategy(AgentStrategy):
         self.review_calls = 0  # 本轮任务 code_review 已执行次数
         self.test_calls = 0    # 本轮任务 run_tests 已执行次数
 
-    async def run(self, task: str, agent: "Agent") -> str:
-        """执行任务，返回最终回复文本。"""
-        messages: list = [
-            {"role": "system", "content": agent.system_prompt},
-            {"role": "user", "content": task},
-        ]
+    async def run(self, task: str, agent: "Agent", history: list | None = None) -> str:
+        """执行任务，返回最终回复文本。
+
+        history: 跨任务对话历史（user/assistant 消息，含可选的 [历史摘要]），
+        拼在 system 之后、当前任务之前，实现多轮对话记忆。
+        """
+        messages: list = [{"role": "system", "content": agent.system_prompt}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": task})
         iterations = 0
 
         while iterations < self.max_iterations:
