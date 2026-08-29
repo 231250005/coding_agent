@@ -411,6 +411,90 @@ data: {"type":"task_done","iterations":8,"llm_calls":10}
 
 ---
 
+### 3.13 目录浏览（前端工作区选择器）★ 待后端实现
+
+`GET /api/fs/dirs?path=...`
+
+**说明**：前端「选择工作目录」弹窗的目录树浏览接口。返回指定绝对路径下的**子目录列表**；`path` 缺省或为空时返回可选根（Windows 为盘符列表）。
+
+**请求示例**
+```
+GET /api/fs/dirs?path=D:/coding_agent
+```
+
+**响应示例（200）**
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "path": "D:/coding_agent",
+    "parent": "D:/",
+    "dirs": [
+      { "name": "coding_agent", "path": "D:/coding_agent/coding_agent" },
+      { "name": "pi", "path": "D:/coding_agent/pi" }
+    ]
+  }
+}
+```
+
+**根请求（path 缺省）**
+```
+GET /api/fs/dirs
+```
+- Windows：`data.dirs = [{ "name": "C:", "path": "C:/" }, { "name": "D:", "path": "D:/" }, ...]`，`parent = ""`
+- Linux / macOS：`data.dirs = [{ "name": "/", "path": "/" }]`，`parent = ""`
+
+**错误**
+- 400：目录不存在或无法访问 → `{"code": 400, "message": "目录不存在或无法访问: D:/xxx"}`
+
+**实现要求**
+- 仅返回目录，不返回文件；目录名按名称排序
+- 路径统一使用**正斜杠**（Windows 同样返回 `D:/xxx` 形式），与创建会话接口的 workspace 格式一致
+- `parent` 为当前目录的上级（根目录时返回空字符串 `""`），前端据此渲染「返回上级」按钮
+- 隐藏目录（以 `.` 开头或以 `$` 结尾）可省略，保持列表干净
+
+### 3.14 按文件夹名解析绝对路径（前端原生选择器配套）★ 待后端实现
+
+`GET /api/fs/resolve?name=<文件夹名>`
+
+**说明**：前端工作区选择使用**系统原生文件夹对话框**（浏览器安全限制拿不到绝对路径，只能拿到文件夹名）。选完后前端调用本接口，后端在本机搜索同名文件夹并返回其**绝对路径候选列表**。
+
+**请求示例**
+```
+GET /api/fs/resolve?name=coding_agent
+```
+
+**响应示例（200）**
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "name": "coding_agent",
+    "matches": [
+      "D:/coding_agent/coding_agent",
+      "C:/Users/86139/projects/coding_agent"
+    ]
+  }
+}
+```
+
+**搜索范围建议（Windows）**
+- 所有盘符的根目录及其**一级子目录**（`D:/`、`D:/coding_agent` 等）
+- 用户主目录（`C:/Users/<name>`）
+- 名字匹配不区分大小写（Windows 语义）；隐藏/系统目录可跳过
+
+**约定**
+- 找不到：`matches` 返回空数组 `[]`（**不报错**），前端据此降级提示
+- 最多返回 10 个候选，按路径字符串排序
+- 路径统一使用**正斜杠**（`D:/xxx` 形式），与创建会话接口的 workspace 格式一致
+
+**错误**
+- 仅参数缺失时 400：`{"code": 400, "message": "缺少 name 参数"}`
+
+---
+
 ## 4. 完整交互时序示例（L1 任务）
 
 ```
