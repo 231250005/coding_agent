@@ -441,3 +441,120 @@ data: {"type":"task_done","iterations":8,"llm_calls":10}
 | **L1 确认卡片**（内嵌对话流：diff + 确认/拒绝） | SSE `request_confirmation` + `POST confirm/reject` |
 | **变更面板**（列表 + 对比 + 撤销按钮） | `GET changes` + `POST revert` |
 | 历史对话（刷新后） | `GET messages` |
+
+## 6. 前端对接示例（JavaScript / Vue 3）
+
+### 6.1 总体时序（每次发消息前先连 SSE）
+
+```javascript
+// 1. 先连 SSE（保证不丢事件），再发任务 —— 顺序不能反
+const es = connectEvents(sessionId, handlers);
+await sendChat(sessionId, "写一个俄罗斯方块", 2);
+```
+
+### 6.2 SSE 连接与事件分发
+
+```javascript
+// EventSource 原生支持断线自动重连（浏览器内置），无需自己实现
+function connectEvents(sessionId, handlers) {
+  const es = new EventSource(`/api/sessions/${sessionId}/events`);
+  es.onmessage = (event) => {
+    const ev = JSON.parse(event.data);          // 每行 data: <json>
+    const handler = handlers[ev.type];
+    if (handler) handler(ev);
+  };
+  es.onerror = () => { /* 断线自动重连，无需处理 */ };
+  return es;                                     // 组件卸载时调用 es.close()
+}
+
+// 事件处理器（按 type 分发到 UI 渲染）
+const handlers = {
+  thinking:  ev => appendMessage('thinking', ev.content),      // 灰色思考文字
+  tool_call: ev => appendToolCard(ev.id, ev.name, ev.args),    // 工具卡片（折叠）
+  tool_result: ev => updateToolCard(ev.id, ev.ok, ev.output),  // 更新卡片结果
+  usage: ev => updateUsageBar(ev.context_tokens, ev.llm_calls),// 用量条
+  request_confirmation: ev => showConfirmCard(ev),             // L1 确认卡片
+  change_status: ev => updateChangeStatus(ev.change_id, ev.status),
+  message: ev => appendMessage('assistant', ev.content),       // 最终回答
+  task_done: ev => taskFinished(ev),                           // 任务结束
+  error: ev => showError(ev.content),
+};
+```
+
+### 6.3 发送任务（带权限）
+
+```javascript
+async function sendChat(sessionId, content, permissionLevel) {
+  const r = await fetch(`/api/sessions/${sessionId}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, permission_level: permissionLevel }),  // 1/2/3
+  });
+  const data = await r.json();
+  if (data.code !== 0) showError(data.message);  // 如 "任务运行中"
+}
+```
+
+### 6.4 L1 确认卡片（内嵌对话流）
+
+```javascript
+// SSE 收到 request_confirmation 时调用 —— 在对话流中插入确认卡片（不是弹窗）
+function showConfirmCard(ev) {
+  // ev = {type, change_id, file_path, operation, diff}
+  const card = {
+    file: ev.file_path,
+    diff: ev.diff,                    // "- 旧行 / + 新行"，直接 <pre> 渲染
+    onConfirm: async () => {
+      await fetch(`/api/changes/${ev.change_id}/confirm`, { method: 'POST' });
+      // 后端会落盘并让 agent 继续，后续事件继续从 SSE 流出
+    },
+    onReject: async () => {
+      await fetch(`/api/changes/${ev.change_id}/reject`, { method: 'POST' });
+    },
+  };
+  // pushConfirmCard(card)  —— 渲染到消息流末尾（agent 在等，界面可显示"等待确认"）
+}
+```
+
+### 6.5 变更面板（L2 撤销 / diff 对比）
+
+```javascript
+// 打开会话时加载变更列表
+async function loadChanges(sessionId) {
+  const r = await fetch(`/api/sessions/${sessionId}/changes`);  // ?status=applied 可过滤
+  const { data } = await r.json();          // data[].{id, file_path, operation, status, diff, ...}
+  return data;
+}
+
+// 撤销按钮（仅 status === 'applied' 的变更）
+async function revertChange(changeId) {
+  const r = await fetch(`/api/changes/${changeId}/revert`, { method: 'POST' });
+  const { data } = await r.json();          // {change_id, status: 'reverted'}
+  refreshChanges();                          // 刷新面板（该行变 reverted 置灰）
+}
+```
+
+### 6.6 刷新恢复（重开页面）
+
+```javascript
+// 1. 会话列表（置顶优先）
+const sessions = (await (await fetch('/api/sessions')).json()).data;
+// 2. 打开某会话 → 加载对话历史（user + assistant，含每轮权限）
+const messages = (await (await fetch(`/api/sessions/${id}/messages`)).json()).data;
+//    messages[].{role, content, permission_level} —— 直接渲染聊天区
+// 3. 加载变更面板
+const changes = await loadChanges(id);
+// 4. 连接 SSE 等待下一次任务
+```
+
+### 6.7 Vue 组件划分建议
+
+```
+<SessionList>    会话列表 + 新建（权限选择器 L1/L2/L3）+ 置顶/重命名
+<ChatWindow>     消息流（thinking/tool 卡片/确认卡片/回答）+ 输入框
+<UsageBar>       上下文 token 进度条（usage 事件）+ 调用次数
+<ConfirmCard>    L1 确认（diff 预览 + 确认/拒绝按钮）—— 消息流内嵌
+<ChangePanel>    变更列表（el-table）+ 对比对话框 + 撤销按钮
+```
+
+> 示例为原生 fetch + EventSource，可直接照搬或用 axios / 封装成 composable。
