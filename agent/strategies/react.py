@@ -73,6 +73,8 @@ class ReActStrategy(AgentStrategy):
                 completion_tokens=getattr(usage, "completion_tokens", None),
             ))
             msg = resp.choices[0].message
+            # finish_reason：模型停止原因（length = 输出被 max_tokens 截断）
+            finish_reason = getattr(resp.choices[0], "finish_reason", None)
 
             # 模型先给出过程说明（思考/计划），转发给前端展示
             if msg.content:
@@ -86,6 +88,23 @@ class ReActStrategy(AgentStrategy):
                     "tool_calls": [tc.model_dump() for tc in msg.tool_calls],
                 }
                 messages.append(assistant_msg)
+
+                # finish_reason == length：输出被截断，tool_calls 参数可能残缺，
+                # 一律判失败，不执行（截断的参数执行会带来错误副作用）
+                if finish_reason == "length":
+                    agent.emit(make_event(
+                        ERROR,
+                        content="模型响应达到输出上限（finish_reason=length），本轮工具调用参数可能被截断，全部视为失败",
+                    ))
+                    for tc in msg.tool_calls:
+                        fail = {"ok": False, "output": "模型响应被截断，工具调用参数可能不完整，请重新发起完整调用"}
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": json.dumps(fail, ensure_ascii=False),
+                        })
+                    continue
+
                 for tc in msg.tool_calls:
                     name = tc.function.name
                     agent.emit(
@@ -96,11 +115,27 @@ class ReActStrategy(AgentStrategy):
                             args=tc.function.arguments,
                         )
                     )
+                    # 参数 JSON 解析失败：不静默执行，给模型明确错误让其重新发起
                     try:
                         args = json.loads(tc.function.arguments or "{}")
                     except json.JSONDecodeError:
-                        args = {}
-                        agent.emit(make_event(ERROR, content=f"工具参数 JSON 解析失败：{tc.function.arguments}"))
+                        parse_fail = {
+                            "ok": False,
+                            "output": (
+                                f"工具参数 JSON 解析失败：{tc.function.arguments[:200]}。"
+                                f"参数格式不合法，请重新发起完整、合法的工具调用。"
+                            ),
+                        }
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": json.dumps(parse_fail, ensure_ascii=False),
+                        })
+                        agent.emit(make_event(
+                            TOOL_RESULT, id=tc.id, name=name,
+                            ok=False, output=parse_fail["output"],
+                        ))
+                        continue
 
                     # 轮次硬控制：评审/测试各最多 N 轮，超限直接阻断并引导继续
                     blocked = self._check_round_limit(name)

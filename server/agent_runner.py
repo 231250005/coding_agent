@@ -46,6 +46,7 @@ class SessionRunner:
         self.session_factory = session_factory
         self.workspace = workspace
         self.events: asyncio.Queue = asyncio.Queue()
+        self._subscribers = 0  # SSE 订阅者计数（无订阅者时事件直接丢弃，防泄漏）
         self._task: Optional[asyncio.Task] = None
         self._confirm_futures: dict[int, asyncio.Future] = {}
         self._task_seq = 0
@@ -56,8 +57,18 @@ class SessionRunner:
 
     # ---------- 事件 ----------
 
+    def subscribe(self) -> None:
+        """SSE 连接建立时调用。"""
+        self._subscribers += 1
+
+    def unsubscribe(self) -> None:
+        """SSE 连接断开时调用（防止队列无人消费持续累积）。"""
+        self._subscribers = max(0, self._subscribers - 1)
+
     def emit(self, event: dict) -> None:
-        self.events.put_nowait(event)
+        # 无订阅者时直接丢弃（任务后台运行时无人消费，不累积内存）
+        if self._subscribers > 0:
+            self.events.put_nowait(event)
 
     async def events_stream(self):
         """SSE 消费者：持续产出事件（跨任务；前端断开时由 StreamingResponse 取消）。"""

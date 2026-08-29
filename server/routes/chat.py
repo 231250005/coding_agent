@@ -76,11 +76,14 @@ def events(session_id: int):
         raise HTTPException(status_code=404, detail=f"会话不存在：{session_id}")
 
     async def stream():
+        runner.subscribe()
         try:
             async for event in runner.events_stream():
                 yield f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
         except asyncio.CancelledError:
             pass  # 客户端断开
+        finally:
+            runner.unsubscribe()
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 

@@ -10,12 +10,28 @@ import asyncio
 import os
 from typing import Optional
 
-from openai import AsyncOpenAI, OpenAI
+from openai import APIConnectionError, APIError, AsyncOpenAI, OpenAI
 
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_MODEL = "qwen3.7-plus-2026-05-26"  # 免费额度耗尽后切换；QWEN_MODEL 环境变量可覆盖
 MAX_RETRIES = 3
 MAX_TOKENS = 8192  # 单次生成上限，防止单次超长输出失控
+
+
+def _is_retryable(e: Exception) -> bool:
+    """判断异常是否值得重试。
+
+    只重试：连接类错误（网络抖动）、429 限流、5xx 服务端错误；
+    不重试：400 参数错误、401/403 鉴权错误等（重试只会白等）。
+    """
+    if isinstance(e, APIConnectionError):
+        return True  # 网络/连接错误，可重试
+    if isinstance(e, APIError):
+        status = getattr(e, "status_code", None)
+        if status is None:
+            return True  # 无状态码的 API 错误，保守重试
+        return status == 429 or status >= 500
+    return True  # 未知异常（超时等），保守重试
 
 
 class LLMClient:
@@ -72,7 +88,8 @@ class LLMClient:
                     **self._build_kwargs(messages, tools, temperature, max_tokens)
                 )
             except Exception as e:
-                if attempt == max_retries - 1:
+                # 只重试可重试错误（连接/429/5xx）；400/401 等直接抛出
+                if not _is_retryable(e) or attempt == max_retries - 1:
                     raise
                 await asyncio.sleep(2**attempt)  # 1s、2s、4s 指数退避
         raise RuntimeError("unreachable")  # pragma: no cover
