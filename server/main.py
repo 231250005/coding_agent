@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from server.db import database, init_db
+from server.routes.chat import router as chat_router
 from server.routes.sessions import router as sessions_router
 
 
@@ -47,6 +48,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 # 业务路由
 app.include_router(sessions_router)
+app.include_router(chat_router)
 
 
 @app.get("/health")

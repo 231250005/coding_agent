@@ -34,6 +34,7 @@ class Agent:
         on_event: Optional[Callable[[dict], None]] = None,
         max_llm_calls: Optional[int] = None,
         permission_level: int | PermissionLevel = PermissionLevel.L3,
+        permissions: Optional[PermissionManager] = None,
         confirm_callback: Optional[Callable[[FileChange], Awaitable[str]]] = None,
         change_sink: Optional[Callable] = None,
     ):
@@ -47,10 +48,15 @@ class Agent:
         # 预算护栏：单任务 LLM 调用次数上限（环境变量 MAX_LLM_CALLS 可覆盖）
         self.llm_calls = 0
         self.max_llm_calls = max_llm_calls or int(os.environ.get("MAX_LLM_CALLS", "60"))
-        # 三级权限（change_sink 为可选的持久化钩子，Web 场景由 server 注入）
-        self.permissions = PermissionManager(
-            PermissionLevel(permission_level), change_sink=change_sink
-        )
+        # 三级权限：支持注入会话级共享 manager（Web 场景多任务复用、变更累积）；
+        # 未注入时新建（CLI 场景），change_sink 为可选持久化钩子
+        if permissions is not None:
+            self.permissions = permissions
+            self.permissions.level = PermissionLevel(permission_level)
+        else:
+            self.permissions = PermissionManager(
+                PermissionLevel(permission_level), change_sink=change_sink
+            )
         self.confirm_callback = confirm_callback
         self._inject_permissions()
         # 上下文管理（token 估算 + 长对话压缩）

@@ -13,6 +13,7 @@ from agent.agent import Agent
 from agent.permissions import FileChange, PermissionLevel, PermissionManager
 
 from .tables.file_changes import FileChangeTable
+from .tables.messages import MessageTable
 
 # L1 确认超时（秒）：用户未确认则自动拒绝，避免 agent 无限挂起
 CONFIRM_TIMEOUT = 300
@@ -67,10 +68,13 @@ class SessionRunner:
     async def _run_agent(self, agent: Agent, content: str, permission_level: int) -> None:
         self.emit({"type": "task_start", "task_id": self._task_seq, "permission_level": permission_level})
         try:
-            await agent.run(content)
+            result = await agent.run(content)
+            # 存 assistant 最终回复（对话历史）
+            with self.session_factory() as db:
+                MessageTable.add(db, self.session_id, "assistant", result, permission_level)
         except Exception as e:
             self.emit({"type": "error", "content": f"{type(e).__name__}: {e}"})
-        # 任务结束信号（iterations/llm_calls 由 agent 的 done 事件携带，这里补收尾）
+        # 任务结束信号
         self.emit({"type": "task_done", "task_id": self._task_seq})
 
     # ---------- L1 确认 ----------

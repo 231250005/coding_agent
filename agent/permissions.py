@@ -45,6 +45,7 @@ class FileChange:
     old_content: str
     new_content: str
     status: str = CHANGE_PENDING
+    permission_level: int = 3  # 产生该变更时的权限级别
     absolute: Optional[Path] = None  # 绝对路径（工具已校验安全）
 
     @property
@@ -100,6 +101,7 @@ class PermissionManager:
             old_content=old_content,
             new_content=new_content,
             status=status,
+            permission_level=int(self.level),
             absolute=absolute,
         )
         self._next_id += 1
