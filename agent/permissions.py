@@ -15,7 +15,11 @@
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
+
+# 持久化钩子：callable(change: FileChange, action: str) -> Optional[int]
+# action: add（返回数据库 id）/ confirm / reject / revert
+ChangeSink = Callable[["FileChange", str], Optional[int]]
 
 # L1/L2 权限下对模型隐藏的 git 工具
 GIT_TOOLS = {"git_status", "git_diff", "git_commit", "git_log"}
@@ -61,10 +65,15 @@ class FileChange:
 
 
 class PermissionManager:
-    """管理权限级别与文件变更记录。"""
+    """管理权限级别与文件变更记录。
 
-    def __init__(self, level: PermissionLevel = PermissionLevel.L3):
+    change_sink：可选的持久化钩子（Web 场景由 server 注入，写 file_changes 表）；
+    CLI 场景为 None（纯内存记录）。
+    """
+
+    def __init__(self, level: PermissionLevel = PermissionLevel.L3, change_sink: ChangeSink | None = None):
         self.level = level
+        self.change_sink = change_sink
         self._changes: list[FileChange] = []
         self._next_id = 1
 
@@ -78,7 +87,11 @@ class PermissionManager:
         new_content: str,
         absolute: Path,
     ) -> FileChange:
-        """登记一次文件变更。L1 记为 pending（待确认），L2/L3 记为 applied。"""
+        """登记一次文件变更。L1 记为 pending（待确认），L2/L3 记为 applied。
+
+        有 change_sink 时同步写数据库，并用数据库 id 对齐内存 id
+        （前端拿到的 change_id 即数据库 id，confirm/revert 直接可用）。
+        """
         status = CHANGE_PENDING if self.level == PermissionLevel.L1 else CHANGE_APPLIED
         change = FileChange(
             change_id=self._next_id,
@@ -90,6 +103,13 @@ class PermissionManager:
             absolute=absolute,
         )
         self._next_id += 1
+        if self.change_sink is not None:
+            try:
+                db_id = self.change_sink(change, "add")
+                if db_id:
+                    change.change_id = int(db_id)
+            except Exception:
+                pass  # 持久化失败不阻塞 agent 运行
         self._changes.append(change)
         return change
 
@@ -123,6 +143,7 @@ class PermissionManager:
             return f"变更 {change_id} 当前状态为 {change.status}，无法确认"
         self._apply(change)
         change.status = CHANGE_APPLIED
+        self._notify_sink(change, "confirm")
         return f"已确认并应用变更 {change_id}（{change.file_path}）"
 
     def reject(self, change_id: int) -> str:
@@ -133,6 +154,7 @@ class PermissionManager:
         if change.status != CHANGE_PENDING:
             return f"变更 {change_id} 当前状态为 {change.status}，无法拒绝"
         change.status = CHANGE_REJECTED
+        self._notify_sink(change, "reject")
         return f"已拒绝变更 {change_id}（{change.file_path}），文件未被修改"
 
     # ---------- L2 撤销 ----------
@@ -146,7 +168,18 @@ class PermissionManager:
             return f"变更 {change_id} 当前状态为 {change.status}，无法撤销"
         self._apply_old(change)
         change.status = CHANGE_REVERTED
+        self._notify_sink(change, "revert")
         return f"已撤销变更 {change_id}（{change.file_path}），文件已还原"
+
+    # ---------- 持久化 ----------
+
+    def _notify_sink(self, change: FileChange, action: str) -> None:
+        if self.change_sink is None:
+            return
+        try:
+            self.change_sink(change, action)
+        except Exception:
+            pass  # 持久化失败不阻塞 agent 运行
 
     # ---------- 内部 ----------
 

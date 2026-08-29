@@ -17,21 +17,36 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from server.db import database, init_db
+from server.routes.sessions import router as sessions_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动时自动：建库 → create_all 建表 → 版本化迁移
+    # 启动时自动：建库 → 建表 → 表结构自动同步
     init_db()
     yield
 
 
 app = FastAPI(title="Coding Agent Server", lifespan=lifespan)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """统一错误格式：{"code": 状态码, "message": 说明}。"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": exc.status_code, "message": exc.detail},
+    )
+
+
+# 业务路由
+app.include_router(sessions_router)
 
 
 @app.get("/health")

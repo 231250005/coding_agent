@@ -16,7 +16,7 @@ from .events import ERROR, DONE, REQUEST_CONFIRMATION, make_event
 from .llm import LLMClient
 from .permissions import FileChange, PermissionLevel, PermissionManager
 from .prompts import build_system_prompt
-from .sandbox import get_workspace
+from .sandbox import get_workspace, set_workspace
 from .strategies import AgentStrategy, get_strategy
 from .tools import ToolRegistry, build_default_registry
 
@@ -35,18 +35,22 @@ class Agent:
         max_llm_calls: Optional[int] = None,
         permission_level: int | PermissionLevel = PermissionLevel.L3,
         confirm_callback: Optional[Callable[[FileChange], Awaitable[str]]] = None,
+        change_sink: Optional[Callable] = None,
     ):
         self.llm = llm or LLMClient()
         # code_review / generate_test 等依赖 LLM 的工具需要注入客户端
         self.registry = registry or build_default_registry(llm=self.llm)
         self.strategy = strategy or get_strategy("react")
+        self.workspace = workspace
         self.system_prompt = build_system_prompt(workspace)
         self.on_event = on_event or (lambda event: None)
         # 预算护栏：单任务 LLM 调用次数上限（环境变量 MAX_LLM_CALLS 可覆盖）
         self.llm_calls = 0
         self.max_llm_calls = max_llm_calls or int(os.environ.get("MAX_LLM_CALLS", "60"))
-        # 三级权限
-        self.permissions = PermissionManager(PermissionLevel(permission_level))
+        # 三级权限（change_sink 为可选的持久化钩子，Web 场景由 server 注入）
+        self.permissions = PermissionManager(
+            PermissionLevel(permission_level), change_sink=change_sink
+        )
         self.confirm_callback = confirm_callback
         self._inject_permissions()
         # 上下文管理（token 估算 + 长对话压缩）
@@ -115,6 +119,8 @@ class Agent:
 
     async def run(self, task: str) -> str:
         """执行任务，返回最终回复文本。"""
+        # 设置当前任务工作区（asyncio 任务隔离，多会话互不干扰）
+        set_workspace(self.workspace)
         try:
             return await self.strategy.run(task, self)
         except Exception as e:

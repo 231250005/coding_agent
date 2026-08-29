@@ -4,6 +4,7 @@
 防止模型生成的路径逃逸到工作区之外（如 ../../Windows/...）。
 """
 
+import contextvars
 import os
 from pathlib import Path
 
@@ -17,9 +18,20 @@ MAX_READ_LINES = 500
 # 环境变量默认值：未配置时使用项目根目录
 DEFAULT_WORKSPACE = str(Path.cwd())
 
+# 当前任务工作区（asyncio 任务隔离：Web 场景每个会话的任务互不干扰）
+_workspace_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("agent_workspace", default=None)
+
+
+def set_workspace(workspace: str | None) -> None:
+    """设置当前 asyncio 任务的工作区（由 Agent.run 在任务开始时调用）。"""
+    _workspace_var.set(workspace)
+
 
 def get_workspace() -> Path:
-    """获取 agent 工作区绝对路径（WORKSPACE_DIR 环境变量可覆盖）。"""
+    """获取当前任务的工作区（优先级：任务工作区 > WORKSPACE_DIR 环境变量 > 项目根）。"""
+    ws = _workspace_var.get()
+    if ws:
+        return Path(ws).resolve()
     return Path(os.environ.get("WORKSPACE_DIR") or DEFAULT_WORKSPACE).resolve()
 
 
