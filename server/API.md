@@ -52,14 +52,17 @@
 | 2 | GET | `/api/sessions` | 会话列表（置顶优先 + 最近更新） |
 | 3 | PUT | `/api/sessions/{id}/pin` | 切换置顶 |
 | 4 | PUT | `/api/sessions/{id}/rename` | 重命名会话 |
-| 5 | DELETE | `/api/sessions/{id}` | 删除会话 |
+| 5 | DELETE | `/api/sessions/{id}` | 删除会话（级联清理消息与变更记录） |
 | 6 | POST | `/api/sessions/{id}/chat` | 发送任务（每轮带权限，触发 SSE 运行） |
 | 7 | GET | `/api/sessions/{id}/events` | SSE 事件流（运行中实时输出） |
 | 8 | GET | `/api/sessions/{id}/messages` | 对话历史 |
 | 9 | GET | `/api/sessions/{id}/changes` | 文件变更列表（含前后对比） |
 | 10 | POST | `/api/changes/{change_id}/confirm` | L1 确认应用变更 |
-| 11 | POST | `/api/changes/{change_id}/reject` | L1 拒绝变更 |
-| 12 | POST | `/api/changes/{change_id}/revert` | L2 撤销已应用变更 |
+| 11 | POST | `/api/changes/{change_id}/reject` | L1 拒绝变更（记录删除） |
+| 12 | POST | `/api/changes/{change_id}/revert` | L2 撤销已应用变更（含冲突检测） |
+| 13 | POST | `/api/sessions/{id}/changes/confirm-all` | **保存全部**：确认该会话全部变更并删除记录 |
+| 14 | GET | `/api/fs/dirs` | 目录浏览（前端工作区选择器） |
+| 15 | GET | `/api/fs/resolve` | 按文件夹名解析绝对路径 |
 
 ---
 
@@ -193,6 +196,8 @@
 ### 3.5 删除会话
 
 `DELETE /api/sessions/{id}`
+
+**说明**：删除会话时**级联清理**该会话的全部消息（messages）与文件变更记录（file_changes），避免孤儿数据。
 
 **响应示例（200）**
 ```json
@@ -399,6 +404,8 @@ data: {"type":"task_done","iterations":8,"llm_calls":10}
 
 **说明**：把文件还原为该变更前的 old_content（仅对 `applied` 状态生效）；**撤销后变更记录删除**，前端面板刷新后该行消失。
 
+**冲突检测（关键）**：撤销前对比「文件当前内容」与「该变更的 new_content」——**一致才允许撤销**；不一致（文件可能被其他会话/人手修改过）则**不做任何修改**，返回 409 + 识别信息。
+
 **响应示例（200）**
 ```json
 {
@@ -408,11 +415,22 @@ data: {"type":"task_done","iterations":8,"llm_calls":10}
 }
 ```
 
-**错误**：400 `{"code": 400, "message": "变更 3 当前状态为 reverted，无法撤销"}`
+**冲突响应（409）**：前端据此识别冲突并提示用户
+```json
+{
+  "code": 409,
+  "conflict": true,
+  "message": "文件 tetris.py 已被其他修改（当前内容与变更记录不一致），未执行撤销",
+  "current": "当前文件内容（前 500 字符）",
+  "expected": "该变更应用后的内容（前 500 字符）"
+}
+```
+
+**其他错误**：400 `{"code": 400, "message": "变更 3 当前状态为 reverted，无法撤销"}`、404 `{"code": 404, "message": "变更不存在：3"}`
 
 ---
 
-### 3.13 目录浏览（前端工作区选择器）★ 待后端实现
+### 3.13 目录浏览（前端工作区选择器）
 
 `GET /api/fs/dirs?path=...`
 
@@ -455,7 +473,7 @@ GET /api/fs/dirs
 - `parent` 为当前目录的上级（根目录时返回空字符串 `""`），前端据此渲染「返回上级」按钮
 - 隐藏目录（以 `.` 开头或以 `$` 结尾）可省略，保持列表干净
 
-### 3.14 按文件夹名解析绝对路径（前端原生选择器配套）★ 待后端实现
+### 3.14 按文件夹名解析绝对路径（前端原生选择器配套）
 
 `GET /api/fs/resolve?name=<文件夹名>`
 
@@ -496,6 +514,25 @@ GET /api/fs/resolve?name=coding_agent
 
 ---
 
+### 3.15 保存全部（确认该会话全部变更）
+
+`POST /api/sessions/{session_id}/changes/confirm-all`
+
+**说明**：前端变更面板"保存全部"按钮调用——用户认可该会话下的所有文件变更，后端**删除该会话的全部变更记录**（撤销能力随之放弃，变更面板清空）。
+
+**响应示例（200）**
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": { "session_id": 1, "deleted": 3 }
+}
+```
+
+**注意**：L2 变更在任务运行时已落盘（applied），此处仅清空记录；已落盘的文件不受影响。
+
+---
+
 ## 4. 完整交互时序示例（L1 任务）
 
 ```
@@ -522,9 +559,10 @@ GET /api/fs/resolve?name=coding_agent
 | 前端组件 | 使用的接口 |
 |---|---|
 | 会话列表 / 新建（选权限） | `POST/GET/DELETE /api/sessions` |
+| **工作区选择器**（目录树 / 原生对话框） | `GET /api/fs/dirs` + `GET /api/fs/resolve` |
 | 聊天区（对话流 + 工具卡片 + 用量条） | `GET events`（SSE）+ `POST chat` |
 | **L1 确认卡片**（内嵌对话流：diff + 确认/拒绝） | SSE `request_confirmation` + `POST confirm/reject` |
-| **变更面板**（列表 + 对比 + 撤销按钮） | `GET changes` + `POST revert` |
+| **变更面板**（列表 + 对比 + 撤销 + **保存全部**） | `GET changes` + `POST revert`（409 冲突提示）+ `POST confirm-all` |
 | 历史对话（刷新后） | `GET messages` |
 
 ## 6. 前端对接示例（JavaScript / Vue 3）

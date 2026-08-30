@@ -73,6 +73,25 @@ def list_changes(session_id: int, status: str | None = None):
         return {"code": 0, "message": "ok", "data": [_to_dict(r) for r in rows]}
 
 
+@router.post("/sessions/{session_id}/changes/confirm-all")
+def confirm_all_changes(session_id: int):
+    """保存全部：该会话下的所有文件变更均已确认 → 删除全部变更记录。
+
+    前端"保存全部"按钮调用：用户认可当前全部变更（撤销能力随之放弃），
+    变更面板清空。
+    """
+    with database.get_session() as db:
+        rows = FileChangeTable.list_by_session(db, session_id)
+        for row in rows:
+            db.delete(row)
+        db.commit()
+        return {
+            "code": 0,
+            "message": "ok",
+            "data": {"session_id": session_id, "deleted": len(rows)},
+        }
+
+
 @router.post("/changes/{change_id}/confirm")
 def confirm_change(change_id: int):
     """L1 确认：真正落盘（new_content 写入工作区文件），agent 继续下一步。"""
