@@ -101,14 +101,14 @@ def confirm_change(change_id: int):
 
 @router.post("/changes/{change_id}/reject")
 def reject_change(change_id: int):
-    """L1 拒绝：不落盘，agent 跳过该修改继续。"""
+    """L1 拒绝：不落盘，agent 跳过该修改继续；记录删除（不再展示）。"""
     with database.get_session() as db:
         change = FileChangeTable.get(db, change_id)
         if change is None:
             raise HTTPException(status_code=404, detail=f"变更不存在：{change_id}")
         if change.status != "pending":
             raise HTTPException(status_code=400, detail=f"变更 {change_id} 当前状态为 {change.status}，无法拒绝")
-        FileChangeTable.update_status(db, change_id, "rejected")
+        FileChangeTable.delete(db, change_id)
 
     runner = get_runner(change.session_id)
     if runner is not None:
@@ -119,7 +119,7 @@ def reject_change(change_id: int):
 
 @router.post("/changes/{change_id}/revert")
 def revert_change(change_id: int):
-    """L2 撤销：用 old_content 还原文件（仅 applied 状态可撤销）。"""
+    """L2 撤销：用 old_content 还原文件；记录删除（前端面板刷新后该行消失）。"""
     with database.get_session() as db:
         change = FileChangeTable.get(db, change_id)
         if change is None:
@@ -131,6 +131,6 @@ def revert_change(change_id: int):
         target = _safe_target(workspace, change.file_path)
         target.write_text(change.old_content, encoding="utf-8")
 
-        FileChangeTable.update_status(db, change_id, "reverted", reverted=True)
+        FileChangeTable.delete(db, change_id)
 
     return {"code": 0, "message": "ok", "data": {"change_id": change_id, "status": "reverted"}}

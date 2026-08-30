@@ -118,7 +118,10 @@ def main():
         print(f"   revert → {r.json()['data']}")
         after = Path(ws, "hello.py").read_text(encoding="utf-8")
         check("文件已还原", after != before, f"{before.strip()!r} → {after.strip()!r}")
-        check("DB 状态 reverted", db_status(target[-1]["id"]) == "reverted")
+        check("DB 记录已删除", db_status(target[-1]["id"]) == "?", f"status={db_status(target[-1]['id'])}")
+        remaining = get_changes(sid)
+        check("变更列表不再含已撤销记录", all(c["id"] != target[-1]["id"] for c in remaining),
+              f"剩余 {len(remaining)} 条")
 
     # ============ 场景 C：L1 拒绝 ============
     print("=" * 50)
@@ -136,7 +139,7 @@ def main():
     read_events(sid, on_c)
     check("bye.py 未生成（被拒绝）", not os.path.exists(os.path.join(ws, "bye.py")))
     if rejected_id["id"]:
-        check("DB 状态 rejected", db_status(rejected_id["id"]) == "rejected")
+        check("DB 记录已删除", db_status(rejected_id["id"]) == "?", f"status={db_status(rejected_id['id'])}")
 
     # 清理
     requests.delete(f"{BASE}/api/sessions/{sid}")

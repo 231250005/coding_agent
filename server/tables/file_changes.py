@@ -92,3 +92,13 @@ class FileChangeTable(Base):
         if reverted:
             row.reverted_at = datetime.now()
         session.commit()
+
+    @staticmethod
+    def delete(session, change_id: int) -> bool:
+        """删除变更记录（撤销/拒绝后彻底移除，不再出现在变更列表）。"""
+        row = session.get(FileChangeTable, change_id)
+        if not row:
+            return False
+        session.delete(row)
+        session.commit()
+        return True

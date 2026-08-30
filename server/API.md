@@ -351,6 +351,7 @@ data: {"type":"task_done","iterations":8,"llm_calls":10}
 **注意**：
 - `old_content` / `new_content`：撤销与对比的数据基础（前端 diff 视图直接使用）
 - L1 确认后的变更状态为 `applied`（确认已发生在对话流中），与 L2 一样可撤销
+- **被拒绝（reject）或撤销（revert）的变更记录会从数据库删除**，不再出现在列表中
 
 ---
 
@@ -379,7 +380,7 @@ data: {"type":"task_done","iterations":8,"llm_calls":10}
 
 `POST /api/changes/{change_id}/reject`
 
-**说明**：用户点击"拒绝"，变更不落盘，agent 继续下一步（跳过该修改）。
+**说明**：用户点击"拒绝"，变更不落盘，agent 继续下一步（跳过该修改）；**拒绝后变更记录删除**，不再出现在变更列表。
 
 **响应示例（200）**
 ```json
@@ -396,7 +397,7 @@ data: {"type":"task_done","iterations":8,"llm_calls":10}
 
 `POST /api/changes/{change_id}/revert`
 
-**说明**：把文件还原为该变更前的 old_content（仅对 `applied` 状态生效）。
+**说明**：把文件还原为该变更前的 old_content（仅对 `applied` 状态生效）；**撤销后变更记录删除**，前端面板刷新后该行消失。
 
 **响应示例（200）**
 ```json

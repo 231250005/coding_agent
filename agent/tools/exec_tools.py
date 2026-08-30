@@ -44,7 +44,7 @@ class RunCommandTool(Tool):
         timeout = int(args.get("timeout") or DEFAULT_TIMEOUT)
         try:
             # 子进程强制 UTF-8 输出并统一按 UTF-8 解码，避免 Windows GBK 乱码
-            env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+            env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"}
             proc = subprocess.Popen(
                 command,
                 shell=True,
@@ -105,7 +105,7 @@ class RunPythonTool(Tool):
         if not code:
             return {"ok": False, "output": "代码不能为空"}
         timeout = int(args.get("timeout") or 30)
-        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"}
         try:
             proc = subprocess.run(
                 [sys.executable, "-c", code],

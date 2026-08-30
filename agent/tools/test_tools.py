@@ -141,13 +141,13 @@ class RunTestsTool(Tool):
     def execute(self, args: dict) -> dict:
         try:
             timeout = int(args.get("timeout") or 120)
-            cmd = [sys.executable, "-m", "pytest", "-q", "--tb=short"]
+            cmd = [sys.executable, "-m", "pytest", "-q", "--tb=short", "-p", "no:cacheprovider"]
             if args.get("path"):
                 cmd.append(str(args["path"]))
             if args.get("keyword"):
                 cmd += ["-k", str(args["keyword"])]
 
-            env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+            env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"}
             proc = subprocess.run(
                 cmd,
                 cwd=get_workspace(),

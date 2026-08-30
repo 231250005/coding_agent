@@ -217,10 +217,9 @@ class SessionRunner:
                 )
             if action == "confirm":
                 FileChangeTable.update_status(db, change.change_id, "applied", confirmed=True)
-            elif action == "reject":
-                FileChangeTable.update_status(db, change.change_id, "rejected")
-            elif action == "revert":
-                FileChangeTable.update_status(db, change.change_id, "reverted", reverted=True)
+            elif action in ("reject", "revert"):
+                # 拒绝/撤销的变更彻底删除（不再出现在变更列表）
+                FileChangeTable.delete(db, change.change_id)
         return None
 
 
