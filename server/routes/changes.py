@@ -119,7 +119,12 @@ def reject_change(change_id: int):
 
 @router.post("/changes/{change_id}/revert")
 def revert_change(change_id: int):
-    """L2 撤销：用 old_content 还原文件；记录删除（前端面板刷新后该行消失）。"""
+    """L2 撤销：用 old_content 还原文件。
+
+    冲突检测：撤销前对比「文件当前内容」与「该变更的 new_content」——
+    一致才允许撤销；不一致则不做任何修改，返回 409 + conflict 识别信息
+    （文件可能被其他会话/人手修改过）。
+    """
     with database.get_session() as db:
         change = FileChangeTable.get(db, change_id)
         if change is None:
@@ -129,8 +134,21 @@ def revert_change(change_id: int):
 
         workspace = _resolve_workspace(change)
         target = _safe_target(workspace, change.file_path)
-        target.write_text(change.old_content, encoding="utf-8")
+        current = target.read_text(encoding="utf-8") if target.exists() else ""
 
+        # 冲突检测：当前内容与该变更应用后的内容不一致 → 不做任何修改，返回识别信息
+        if current != change.new_content:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": f"文件 {change.file_path} 已被其他修改（当前内容与变更记录不一致），未执行撤销",
+                    "conflict": True,
+                    "current": current[:500],
+                    "expected": change.new_content[:500],
+                },
+            )
+
+        target.write_text(change.old_content, encoding="utf-8")
         FileChangeTable.delete(db, change_id)
 
     return {"code": 0, "message": "ok", "data": {"change_id": change_id, "status": "reverted"}}

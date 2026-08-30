@@ -41,7 +41,15 @@ app = FastAPI(title="Coding Agent Server", lifespan=lifespan)
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    """统一错误格式：{"code": 状态码, "message": 说明}。"""
+    """统一错误格式：{"code": 状态码, "message": 说明}。
+
+    detail 为 dict 时（如撤销冲突 409）展开其字段，前端可据此识别冲突。
+    """
+    if isinstance(exc.detail, dict):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"code": exc.status_code, **exc.detail},
+        )
     return JSONResponse(
         status_code=exc.status_code,
         content={"code": exc.status_code, "message": exc.detail},
