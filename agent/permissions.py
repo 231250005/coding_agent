@@ -90,9 +90,21 @@ class PermissionManager:
     ) -> FileChange:
         """登记一次文件变更。L1 记为 pending（待确认），L2/L3 记为 applied。
 
+        同一会话内多次写入/修改同一文件会**合并**为一条记录：
+        old_content 保留最早一次修改前的旧内容，new_content 更新为最新内容。
+
         有 change_sink 时同步写数据库，并用数据库 id 对齐内存 id
         （前端拿到的 change_id 即数据库 id，confirm/revert 直接可用）。
         """
+        # 合并：同一文件已有活跃变更（pending/applied）→ 更新最新内容，保留最早旧内容
+        existing = self._find_active_change(path)
+        if existing is not None:
+            existing.new_content = new_content
+            existing.operation = operation
+            existing.absolute = absolute
+            self._notify_sink(existing, "merge")
+            return existing
+
         status = CHANGE_PENDING if self.level == PermissionLevel.L1 else CHANGE_APPLIED
         change = FileChange(
             change_id=self._next_id,
@@ -114,6 +126,13 @@ class PermissionManager:
                 pass  # 持久化失败不阻塞 agent 运行
         self._changes.append(change)
         return change
+
+    def _find_active_change(self, path: str) -> Optional[FileChange]:
+        """同一文件最后一条活跃变更（pending 或 applied，可合并）。"""
+        for c in reversed(self._changes):
+            if c.file_path == path and c.status in (CHANGE_PENDING, CHANGE_APPLIED):
+                return c
+        return None
 
     def get(self, change_id: int) -> Optional[FileChange]:
         for c in self._changes:

@@ -217,6 +217,9 @@ class SessionRunner:
                 )
             if action == "confirm":
                 FileChangeTable.update_status(db, change.change_id, "applied", confirmed=True)
+            elif action == "merge":
+                # 同文件多次修改合并：更新最新内容（保留最早旧内容）
+                FileChangeTable.update_content(db, change.change_id, change.new_content, change.operation)
             elif action in ("reject", "revert"):
                 # 拒绝/撤销的变更彻底删除（不再出现在变更列表）
                 FileChangeTable.delete(db, change.change_id)

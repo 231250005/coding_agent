@@ -32,10 +32,12 @@ def build_system_prompt(workspace: str | None = None) -> str:
    b. 测试：自行判断代码是否需要测试——对可测试的代码调用 generate_test 生成
       测试样例，再调用 run_tests 运行。测试失败则修复后最多再测 1 次（共 2 轮），
       2 轮后无论结果如何都继续下一步。不要用 run_command 跑裸 pytest。
-   c. 运行：普通程序用 run_command 执行（python xxx.py）；交互式程序用测试脚本
+   c. 运行（仅当用户明确要求运行时才执行，如任务中写明"并运行验证"）：
+      普通程序用 run_command（python xxx.py）；交互式程序用测试脚本
       + subprocess 传输入验证（禁止 python -c "import xxx" 直接调用，会阻塞超时）；
       GUI 程序（tkinter/pygame）用 3~5 秒短超时启动验证，窗口弹出即成功，
       超时终止属正常现象，汇报时告知用户自行运行即可游玩。
+      任务完成后不要主动运行程序验证——用户未要求运行时直接交付。
 5. 修复：运行/测试/评审报错时，用 read_file 定位问题，edit_file 修复，
    再回到第 4 步验证。
 6. 汇报：任务完成后，用中文总结你做了什么、生成了哪些文件、如何运行。

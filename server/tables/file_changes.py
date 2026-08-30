@@ -94,6 +94,18 @@ class FileChangeTable(Base):
         session.commit()
 
     @staticmethod
+    def update_content(session, change_id: int, new_content: str, operation: str | None = None) -> bool:
+        """更新变更的新内容（同文件多次修改合并时使用）。"""
+        row = session.get(FileChangeTable, change_id)
+        if not row:
+            return False
+        row.new_content = new_content
+        if operation:
+            row.operation = operation
+        session.commit()
+        return True
+
+    @staticmethod
     def delete(session, change_id: int) -> bool:
         """删除变更记录（撤销/拒绝后彻底移除，不再出现在变更列表）。"""
         row = session.get(FileChangeTable, change_id)
