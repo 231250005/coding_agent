@@ -12,8 +12,10 @@ class RunCommandTool(Tool):
     name = "run_command"
     description = (
         "在用户机器的 shell（Windows cmd）中执行一条命令。"
-        "常用于安装依赖（pip install）、运行程序（python xxx.py）、查看环境（python --version）"
-        "等纯命令操作。命令在工作区目录下执行，默认 60 秒超时，输出过长会自动截断。"
+        "常用于安装依赖（pip install）、查看环境（python --version）等纯命令操作。"
+        "注意：不要在用户未要求运行时用本工具运行程序验证；"
+        "用户明确要求【运行/打开】程序时用 background=true 启动。"
+        "命令在工作区目录下执行，默认 60 秒超时，输出过长会自动截断。"
         "注意：测试执行请用 run_tests 工具，语法检查与代码评审请用 code_review 工具，"
         "不要用本工具做这两件事。"
         "shell 是 Windows cmd 而不是 bash：管道符直接写 |，不要加 ^ 转义"
@@ -29,9 +31,13 @@ class RunCommandTool(Tool):
             },
             "timeout": {
                 "type": "integer",
-                "description": "超时秒数，默认 60，最大 300",
+                "description": "超时秒数，默认 60，最大 300；background=true 时忽略",
                 "minimum": 1,
                 "maximum": 300,
+            },
+            "background": {
+                "type": "boolean",
+                "description": "true = 后台启动（不等待、不超时终止），适用于用户要求【运行/打开】程序时让窗口常驻；默认 false = 前台执行并等待结果",
             },
         },
         "required": ["command"],
@@ -42,9 +48,23 @@ class RunCommandTool(Tool):
         if not command:
             return {"ok": False, "output": "命令不能为空"}
         timeout = int(args.get("timeout") or DEFAULT_TIMEOUT)
+        background = bool(args.get("background", False))
+        # 子进程强制 UTF-8 输出并统一按 UTF-8 解码，避免 Windows GBK 乱码
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"}
+        if background:
+            # 后台启动：进程持续运行（GUI 窗口常驻可玩），立即返回
+            try:
+                subprocess.Popen(
+                    command,
+                    shell=True,
+                    cwd=get_workspace(),
+                    env=env,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                )
+                return {"ok": True, "output": f"已在后台启动：{command}（窗口/进程持续运行，用户可自行关闭）"}
+            except Exception as e:
+                return {"ok": False, "output": f"后台启动失败：{e}", "exit_code": -1}
         try:
-            # 子进程强制 UTF-8 输出并统一按 UTF-8 解码，避免 Windows GBK 乱码
-            env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"}
             proc = subprocess.Popen(
                 command,
                 shell=True,
