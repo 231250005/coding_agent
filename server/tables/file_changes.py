@@ -106,6 +106,14 @@ class FileChangeTable(Base):
         return True
 
     @staticmethod
+    def delete_by_session(session, session_id: int) -> None:
+        """删除某会话的全部文件变更（删除会话时级联清理，避免孤儿数据）。"""
+        from sqlalchemy import delete
+
+        session.execute(delete(FileChangeTable).where(FileChangeTable.session_id == session_id))
+        session.commit()
+
+    @staticmethod
     def delete(session, change_id: int) -> bool:
         """删除变更记录（撤销/拒绝后彻底移除，不再出现在变更列表）。"""
         row = session.get(FileChangeTable, change_id)

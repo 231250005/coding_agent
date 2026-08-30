@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 from ..agent_runner import create_runner, remove_runner
 from ..db import database
+from ..tables.file_changes import FileChangeTable
+from ..tables.messages import MessageTable
 from ..tables.sessions import SessionTable
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -74,8 +76,10 @@ def rename_session(session_id: int, body: RenameBody):
 
 @router.delete("/{session_id}")
 def delete_session(session_id: int):
-    """删除会话（连带清理 runner）。"""
+    """删除会话（级联清理该会话的全部消息、文件变更记录与 runner）。"""
     with database.get_session() as db:
+        MessageTable.delete_by_session(db, session_id)
+        FileChangeTable.delete_by_session(db, session_id)
         SessionTable.delete(db, session_id)
         remove_runner(session_id)
         return {"code": 0, "message": "ok", "data": None}

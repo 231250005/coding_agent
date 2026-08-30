@@ -48,6 +48,14 @@ class MessageTable(Base):
         ).scalars().all()
 
     @staticmethod
+    def delete_by_session(session, session_id: int) -> None:
+        """删除某会话的全部消息（删除会话时级联清理，避免孤儿数据）。"""
+        from sqlalchemy import delete
+
+        session.execute(delete(MessageTable).where(MessageTable.session_id == session_id))
+        session.commit()
+
+    @staticmethod
     def get_latest_summary(session, session_id: int) -> "MessageTable | None":
         """最新一条会话摘要（role='summary'）。"""
         from sqlalchemy import select
