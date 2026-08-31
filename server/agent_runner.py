@@ -217,6 +217,10 @@ class SessionRunner:
                 )
             if action == "confirm":
                 FileChangeTable.update_status(db, change.change_id, "applied", confirmed=True)
+            elif action == "pending":
+                # L1 合并后重新进入待确认
+                FileChangeTable.update_status(db, change.change_id, "pending")
+                FileChangeTable.update_content(db, change.change_id, change.new_content, change.operation)
             elif action == "merge":
                 # 同文件多次修改合并：更新最新内容（保留最早旧内容）
                 FileChangeTable.update_content(db, change.change_id, change.new_content, change.operation)

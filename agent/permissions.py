@@ -102,7 +102,13 @@ class PermissionManager:
             existing.new_content = new_content
             existing.operation = operation
             existing.absolute = absolute
-            self._notify_sink(existing, "merge")
+            if self.level == PermissionLevel.L1:
+                # L1：修改后重新进入待确认（内容变了，需要用户再次确认）
+                existing.status = CHANGE_PENDING
+                self._notify_sink(existing, "pending")
+            else:
+                # L2/L3：直接修改，保持 applied
+                self._notify_sink(existing, "merge")
             return existing
 
         status = CHANGE_PENDING if self.level == PermissionLevel.L1 else CHANGE_APPLIED
