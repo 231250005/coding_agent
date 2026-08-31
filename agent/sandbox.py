@@ -50,7 +50,18 @@ def safe_join(rel_path: str) -> Path:
 
 
 def truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
-    """截断过长的文本，保留头部并提示截断原因。"""
+    """截断过长的文本，保留头部并提示截断原因（文件内容类适用）。"""
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n… (输出过长已截断，仅显示前 {limit} 字符)"
+
+
+def truncate_tail(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
+    """截断过长的文本，**保留末尾**并提示截断原因（命令输出类适用）。
+
+    命令的错误信息（Traceback / FAILED / fatal）在输出末尾——
+    保留尾部才能让模型"看到错误"并自我纠错。
+    """
+    if len(text) <= limit:
+        return text
+    return f"… (输出过长已截断开头，仅显示末尾 {limit} 字符)\n" + text[-limit:]

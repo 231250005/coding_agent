@@ -1,11 +1,39 @@
-"""执行类工具：run_command（shell 命令）/ run_python（Python 片段）。"""
+"""执行类工具：run_command（shell 命令）/ run_python（Python 片段）。
+
+安全：不可逆命令黑名单——递归删除/通配符删除/git 危险/磁盘级操作
+在所有权限模式下一律拒绝（可行动错误引导模型改用安全方式）。
+"""
 
 import os
+import re
 import subprocess
 import sys
 
-from ..sandbox import DEFAULT_TIMEOUT, get_workspace, truncate
+from ..sandbox import DEFAULT_TIMEOUT, get_workspace, truncate, truncate_tail
 from .base import Tool
+
+# 不可逆/批量破坏命令黑名单（命中即拒绝，任何权限模式不可绕过）
+DANGEROUS_COMMAND_PATTERNS = [
+    re.compile(r"\brm\s+-\w*r"),             # rm -rf / rm -r（递归删除）
+    re.compile(r"\b(rd|rmdir)\s+/\w*s"),     # rd /s、rmdir /s（递归删除目录）
+    re.compile(r"\b(del|erase)\s+/\w*s"),    # del /s、erase /s（递归删除）
+    re.compile(r"\b(del|erase|rm|rmdir|rd)\s+.*[*?]"),  # 通配符批量删除
+    re.compile(r"\bfor\s+/[rdf]"),           # for 循环动态删除
+    re.compile(r"\bfind\s+.*\s-delete"),     # find . -delete
+    re.compile(r"\bgit\s+clean\s+-f"),       # git clean -f（删所有未跟踪文件）
+    re.compile(r"\bgit\s+reset\s+--hard"),   # git reset --hard（丢弃全部修改）
+    re.compile(r"\b(format|mkfs|diskpart)\b"),  # 磁盘级操作
+]
+
+DANGEROUS_HINT = (
+    "该命令属于不可逆操作（递归/批量/磁盘级删除），已被拒绝——任何权限模式下均不可执行。"
+    "如需删除，请指定具体文件路径（如 del file.py）改用安全方式完成。"
+)
+
+
+def _is_dangerous(command: str) -> bool:
+    """检测命令是否命中不可逆操作黑名单。"""
+    return any(p.search(command) for p in DANGEROUS_COMMAND_PATTERNS)
 
 
 class RunCommandTool(Tool):
@@ -47,6 +75,9 @@ class RunCommandTool(Tool):
         command = str(args.get("command", "")).strip()
         if not command:
             return {"ok": False, "output": "命令不能为空"}
+        # 不可逆操作黑名单：命中直接拒绝（所有权限模式）
+        if _is_dangerous(command):
+            return {"ok": False, "output": DANGEROUS_HINT, "exit_code": -1}
         timeout = int(args.get("timeout") or DEFAULT_TIMEOUT)
         background = bool(args.get("background", False))
         # 子进程强制 UTF-8 输出并统一按 UTF-8 解码，避免 Windows GBK 乱码
@@ -89,7 +120,7 @@ class RunCommandTool(Tool):
                 output = f"(命令执行成功，退出码 {proc.returncode}，无输出)"
             return {
                 "ok": proc.returncode == 0,
-                "output": truncate(output),
+                "output": truncate_tail(output),  # 保留尾部：错误信息在末尾
                 "exit_code": proc.returncode,
             }
         except Exception as e:
@@ -140,7 +171,7 @@ class RunPythonTool(Tool):
             output = (proc.stdout or "") + (proc.stderr or "")
             if not output.strip():
                 output = f"(执行成功，退出码 {proc.returncode}，无输出)"
-            return {"ok": proc.returncode == 0, "output": truncate(output), "exit_code": proc.returncode}
+            return {"ok": proc.returncode == 0, "output": truncate_tail(output), "exit_code": proc.returncode}
         except subprocess.TimeoutExpired:
             return {"ok": False, "output": f"代码执行超时（>{timeout} 秒），已终止", "exit_code": -1}
         except Exception as e:
