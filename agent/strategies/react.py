@@ -10,6 +10,7 @@
 只调用注册表中真实存在的工具，禁止编造工具或声称完成工具集不支持的动作。
 """
 
+import asyncio
 import json
 
 from ..events import CONTEXT_COMPRESSED, DONE, ERROR, MESSAGE, THINKING, TOOL_CALL, TOOL_RESULT, USAGE, make_event
@@ -144,8 +145,11 @@ class ReActStrategy(AgentStrategy):
                     elif not agent.is_tool_allowed(name):
                         result = {"ok": False, "output": f"当前权限级别不允许使用 {name} 工具（仅 L3 可用 git 操作）。"}
                     else:
-                        # 统一走注册表执行：未知工具名会返回失败结果（不崩溃）
-                        result = agent.registry.execute(name, args)
+                        # 统一走注册表执行：未知工具名会返回失败结果（不崩溃）。
+                        # 关键：工具（run_command 等）是同步 subprocess，直接调用会阻塞
+                        # 事件循环 → 任务运行期间 HTTP 请求（L1 确认等）全部排队。
+                        # 放入线程池执行，事件循环保持响应。
+                        result = await asyncio.to_thread(agent.registry.execute, name, args)
 
                     # L1 权限：软修改等待用户确认（暂停循环）
                     pending_id = result.get("pending_change")

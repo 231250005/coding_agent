@@ -119,7 +119,7 @@ class SessionRunner:
         # 任务结束信号
         self.emit({"type": "task_done", "task_id": self._task_seq})
         # 跨任务摘要：未摘要轮次超阈值时增量合并历史
-        self._maybe_summarize()
+        await self._maybe_summarize()
 
     # ---------- 跨任务上下文（多轮记忆） ----------
 
@@ -137,7 +137,7 @@ class SessionRunner:
                 history.append({"role": row.role, "content": row.content})
         return history
 
-    def _maybe_summarize(self) -> None:
+    async def _maybe_summarize(self) -> None:
         """未摘要轮次（summary 之后的 user 消息数）超阈值 → 增量摘要。"""
         with self.session_factory() as db:
             summary = MessageTable.get_latest_summary(db, self.session_id)
@@ -147,25 +147,26 @@ class SessionRunner:
         if rounds <= SUMMARY_TRIGGER_ROUNDS:
             return
         try:
-            self._run_summarize(summary, rows)
+            await self._run_summarize(summary, rows)
         except Exception as e:
             self.emit({"type": "error", "content": f"会话摘要失败：{e}"})
 
-    def _run_summarize(self, summary, rows: list) -> None:
+    async def _run_summarize(self, summary, rows: list) -> None:
         """LLM 增量合并：旧摘要 + 新增轮次 → 新摘要（插入 role='summary' 消息）。"""
         llm = _get_llm()
         old_summary = summary.content if summary else "（无）"
         new_messages = "\n".join(
             f"[{r.role}] {(r.content or '')[:SUMMARY_MSG_PREVIEW]}" for r in rows
         )
-        resp = llm.chat(
+        resp = await asyncio.to_thread(
+            llm.chat,
             [
                 {"role": "system", "content": "你是对话历史记录员。"},
                 {"role": "user", "content": SUMMARIZE_PROMPT.format(
                     old_summary=old_summary, new_messages=new_messages
                 )},
             ],
-            temperature=0.2,
+            0.2,
         )
         new_summary = (resp.choices[0].message.content or "").strip()
         if not new_summary:
