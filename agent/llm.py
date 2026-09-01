@@ -8,12 +8,18 @@
 
 import asyncio
 import os
+from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
 from openai import APIConnectionError, APIError, AsyncOpenAI, OpenAI
 
+# 项目根目录 .env（与 server/db.py 一致）：CLI / 冒烟测试等非 server 入口也能读到配置。
+# load_dotenv 默认不覆盖已存在的环境变量 → 系统环境变量仍优先。
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-DEFAULT_MODEL = "qwen3.7-max-2026-06-08"  # 免费额度耗尽后切换；QWEN_MODEL 环境变量可覆盖
+DEFAULT_MODEL = "qwen3.8-max"  # 免费额度耗尽后切换；QWEN_MODEL 环境变量可覆盖
 MAX_RETRIES = 3
 MAX_TOKENS = 16384  # 单次生成上限（qwen3.7-plus 支持长输出；仍保留截断兜底）
 
