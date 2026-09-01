@@ -63,6 +63,8 @@ async def main() -> None:
         level = 3
     print("-" * 50)
     print(f"已选择权限级别 L{level}。输入编程任务，agent 将自主完成；输入 exit 退出。")
+    from agent.logger import DEFAULT_LOG_DIR
+    print(f"运行日志：{DEFAULT_LOG_DIR}（按日期归档，AGENT_LOG=0 可关闭）")
 
     agent = Agent(on_event=pretty_print, permission_level=level, confirm_callback=cli_confirm)
     while True:

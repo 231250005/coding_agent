@@ -100,6 +100,7 @@ class SessionRunner:
             change_sink=self._change_sink,
             on_event=self.emit,
             workspace=self.workspace,
+            log_meta={"会话ID": self.session_id},  # 运行日志按会话串联多轮对话
         )
         self._task = asyncio.create_task(
             self._run_agent(agent, content, permission_level, history)

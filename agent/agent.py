@@ -16,6 +16,7 @@ from typing import Awaitable, Callable, Optional
 from .context import ContextManager
 from .events import ERROR, DONE, REQUEST_CONFIRMATION, make_event
 from .llm import LLMClient
+from .logger import RunLogger
 from .permissions import FileChange, PermissionLevel, PermissionManager
 from .prompts import AGENTS_MD_FULL_LIMIT, build_system_prompt
 from .sandbox import get_workspace, set_workspace
@@ -39,6 +40,7 @@ class Agent:
         permissions: Optional[PermissionManager] = None,
         confirm_callback: Optional[Callable[[FileChange], Awaitable[str]]] = None,
         change_sink: Optional[Callable] = None,
+        log_meta: Optional[dict] = None,
     ):
         self.llm = llm or LLMClient()
         # code_review / generate_test 等依赖 LLM 的工具需要注入客户端
@@ -66,6 +68,10 @@ class Agent:
         self._inject_permissions()
         # 上下文管理（token 估算 + 长对话压缩）
         self.context = ContextManager()
+        # 运行日志：默认开启（AGENT_LOG=0 关闭），按日期记录每步事件到根目录 log/
+        self.logger = RunLogger() if os.environ.get("AGENT_LOG", "1") != "0" else None
+        # 日志块元信息（如 Web 场景的会话 ID，由 server 层注入）
+        self.log_meta = log_meta or {}
 
     def _detect_long_agents_md(self, workspace: Optional[str]) -> None:
         """超长 AGENTS.md（>4000 字符）：记录内容，run() 时异步 LLM 摘要注入。"""
@@ -103,7 +109,9 @@ class Agent:
             self.registry.get(name).permissions = self.permissions
 
     def emit(self, event: dict) -> None:
-        """推送事件给外部（CLI 打印 / WebSocket 推送）。"""
+        """推送事件给外部（CLI 打印 / WebSocket 推送），并写入运行日志。"""
+        if self.logger is not None:
+            self.logger.event(event)
         self.on_event(event)
 
     async def call_llm(self, *args, **kwargs):
@@ -171,9 +179,23 @@ class Agent:
             if summary:
                 self.system_prompt += "\n\n## 项目规范（AGENTS.md 摘要）\n" + summary
             self._agents_md_pending = None
+        # 运行日志：任务块头（任务内容 + 会话/权限/工作区元信息）
+        if self.logger is not None:
+            meta = dict(self.log_meta)
+            meta.setdefault("权限", f"L{int(self.permissions.level)}")
+            meta.setdefault("工作区", str(get_workspace()))
+            if history:
+                meta["历史轮数"] = len(history)
+            self.logger.begin_run(task, meta)
         try:
+            # 重置策略的每任务状态（评审/测试去重）——策略实例可能跨任务复用（CLI）
+            self.strategy.reset()
             return await self.strategy.run(task, self, history=history)
         except Exception as e:
             self.emit(make_event(ERROR, content=f"agent 运行异常：{type(e).__name__}: {e}"))
             self.emit(make_event(DONE, iterations=0, llm_calls=self.llm_calls))
             return f"任务运行失败：{type(e).__name__}: {e}"
+        finally:
+            # 运行日志：任务块尾（即使异常也写结束标记）
+            if self.logger is not None:
+                self.logger.end_run(f"LLM 调用 {self.llm_calls} 次")

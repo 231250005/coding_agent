@@ -16,6 +16,9 @@ web/dist/
 # 会话数据
 server/data/
 
+# 运行日志（按日期自动生成）
+log/
+
 # 工具
 .idea/
 .vscode/
