@@ -59,8 +59,9 @@ class ContextManager:
         keep_recent: int = 10,
         max_summary_chars: int = 800,
     ):
-        # 阈值默认 20000（两万），可用 MAX_CONTEXT_TOKENS 环境变量覆盖
-        self.max_tokens = max_tokens or int(os.environ.get("MAX_CONTEXT_TOKENS", "20000"))
+        # 阈值默认 100000（十万，约窗口 128k 的 78%，留生成余量防超窗），
+        # 可用 MAX_CONTEXT_TOKENS 环境变量覆盖
+        self.max_tokens = max_tokens or int(os.environ.get("MAX_CONTEXT_TOKENS", "100000"))
         self.keep_recent = keep_recent
         self.max_summary_chars = max_summary_chars
         # usage 锚点：最近一次 LLM 响应的真实 prompt_tokens（及其对应消息数）
