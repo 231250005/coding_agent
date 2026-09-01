@@ -24,6 +24,22 @@ class Tool(ABC):
             },
         }
 
+    def validate(self, args: dict) -> tuple[bool, str]:
+        """基本参数校验：检查必填参数（schema required）是否缺失/为空。
+
+        返回 (是否通过, 错误信息)。错误信息可行动：指明缺哪个参数、期望类型与含义，
+        模型收到后能立即重新发起正确调用。
+        """
+        required = self.parameters.get("required") or []
+        for name in required:
+            if name not in args or args.get(name) in (None, ""):
+                prop = self.parameters.get("properties", {}).get(name, {})
+                return False, (
+                    f"参数校验失败：缺少必填参数 {name}（{name}: {prop.get('type', '?')}"
+                    f"，{prop.get('description', '')}）。请重新发起完整、合法的工具调用。"
+                )
+        return True, ""
+
     @abstractmethod
     def execute(self, args: dict) -> dict:
         """执行工具。

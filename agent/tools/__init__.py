@@ -39,6 +39,10 @@ class ToolRegistry:
             tool = self._tools[name]
         except KeyError:
             return {"ok": False, "output": f"未知工具：{name}（可用工具：{', '.join(self.names())}）"}
+        # 参数校验：缺必填参数时直接回可行动错误，不进入工具执行
+        ok, err = tool.validate(args or {})
+        if not ok:
+            return {"ok": False, "output": err}
         try:
             return tool.execute(args)
         except Exception as e:

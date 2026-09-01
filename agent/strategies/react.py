@@ -66,11 +66,15 @@ class ReActStrategy(AgentStrategy):
             )
             # 用量统计：真实 token（API usage）+ 当前上下文估算 + 累计调用次数
             usage = getattr(resp, "usage", None)
+            prompt_tokens = getattr(usage, "prompt_tokens", None)
+            # usage 锚定：真实 prompt_tokens = 发送时 messages 的总量，
+            # 记录供后续 token 估算校准（压缩触发时机更准）
+            agent.context.record_usage(prompt_tokens, len(messages))
             agent.emit(make_event(
                 USAGE,
                 llm_calls=agent.llm_calls,
                 context_tokens=agent.context.count_tokens(messages),
-                prompt_tokens=getattr(usage, "prompt_tokens", None),
+                prompt_tokens=prompt_tokens,
                 completion_tokens=getattr(usage, "completion_tokens", None),
             ))
             msg = resp.choices[0].message

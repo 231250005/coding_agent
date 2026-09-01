@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 
-from ..sandbox import DEFAULT_TIMEOUT, get_workspace, truncate, truncate_tail
+from ..sandbox import DEFAULT_TIMEOUT, get_workspace, truncate_tail, truncate_with_meta
 from .base import Tool
 
 # 不可逆/批量破坏命令黑名单（命中即拒绝，任何权限模式不可绕过）
@@ -118,11 +118,16 @@ class RunCommandTool(Tool):
             output = (stdout or "") + (stderr or "")
             if not output.strip():
                 output = f"(命令执行成功，退出码 {proc.returncode}，无输出)"
-            return {
+            out, truncated, total = truncate_with_meta(output, tail=True)
+            result = {
                 "ok": proc.returncode == 0,
-                "output": truncate_tail(output),  # 保留尾部：错误信息在末尾
+                "output": out,
                 "exit_code": proc.returncode,
             }
+            if truncated:
+                result["truncated"] = True
+                result["total_chars"] = total
+            return result
         except Exception as e:
             return {"ok": False, "output": f"命令执行失败：{e}", "exit_code": -1}
 
@@ -171,7 +176,12 @@ class RunPythonTool(Tool):
             output = (proc.stdout or "") + (proc.stderr or "")
             if not output.strip():
                 output = f"(执行成功，退出码 {proc.returncode}，无输出)"
-            return {"ok": proc.returncode == 0, "output": truncate_tail(output), "exit_code": proc.returncode}
+            out, truncated, total = truncate_with_meta(output, tail=True)
+            result = {"ok": proc.returncode == 0, "output": out, "exit_code": proc.returncode}
+            if truncated:
+                result["truncated"] = True
+                result["total_chars"] = total
+            return result
         except subprocess.TimeoutExpired:
             return {"ok": False, "output": f"代码执行超时（>{timeout} 秒），已终止", "exit_code": -1}
         except Exception as e:

@@ -65,3 +65,19 @@ def truncate_tail(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
     if len(text) <= limit:
         return text
     return f"… (输出过长已截断开头，仅显示末尾 {limit} 字符)\n" + text[-limit:]
+
+
+def truncate_with_meta(
+    text: str, limit: int = MAX_OUTPUT_CHARS, tail: bool = False
+) -> tuple[str, bool, int]:
+    """截断并返回元数据：(截断后文本, 是否发生截断, 原始总字符数)。
+
+    供工具返回结构化截断信息（truncated / total_chars），
+    模型据此知道"输出被截断了、总量多少"，主动补齐遗漏部分。
+    """
+    total = len(text)
+    if total <= limit:
+        return text, False, total
+    if tail:
+        return truncate_tail(text, limit), True, total
+    return truncate(text, limit), True, total

@@ -5,7 +5,7 @@ import os
 import re
 from pathlib import Path
 
-from ..sandbox import get_workspace, safe_join, truncate
+from ..sandbox import get_workspace, safe_join, truncate, truncate_with_meta
 from .base import Tool
 
 # 搜索时跳过的目录（隐藏/依赖/缓存）
@@ -44,7 +44,13 @@ class ListDirTool(Tool):
                 suffix = "/" if full.is_dir() else ""
                 marker = "dir" if full.is_dir() else "file"
                 lines.append(f"  {entry}{suffix}  ({marker})")
-            return {"ok": True, "output": truncate("\n".join(lines))}
+            raw = "\n".join(lines)
+            out, truncated, total = truncate_with_meta(raw)
+            result = {"ok": True, "output": out}
+            if truncated:
+                result["truncated"] = True
+                result["total_chars"] = total
+            return result
         except Exception as e:
             return {"ok": False, "output": f"列出目录失败：{e}"}
 
@@ -94,7 +100,13 @@ class GrepTool(Tool):
 
             if not results:
                 return {"ok": True, "output": f"未找到匹配「{pattern}」的内容。"}
-            return {"ok": True, "output": truncate(f"找到 {len(results)} 处匹配：\n" + "\n".join(results))}
+            raw = f"找到 {len(results)} 处匹配：\n" + "\n".join(results)
+            out, truncated, total = truncate_with_meta(raw)
+            result = {"ok": True, "output": out}
+            if truncated:
+                result["truncated"] = True
+                result["total_chars"] = total
+            return result
         except Exception as e:
             return {"ok": False, "output": f"搜索失败：{e}"}
 
@@ -141,7 +153,13 @@ class GlobTool(Tool):
                     break
             if not matches:
                 return {"ok": True, "output": f"没有匹配「{pattern}」的文件。"}
-            return {"ok": True, "output": truncate(f"匹配到 {len(matches)} 个文件：\n" + "\n".join(matches))}
+            raw = f"匹配到 {len(matches)} 个文件：\n" + "\n".join(matches)
+            out, truncated, total = truncate_with_meta(raw)
+            result = {"ok": True, "output": out}
+            if truncated:
+                result["truncated"] = True
+                result["total_chars"] = total
+            return result
         except Exception as e:
             return {"ok": False, "output": f"查找失败：{e}"}
 
@@ -184,7 +202,13 @@ class FindSymbolsTool(Tool):
             if not results:
                 hint = f"（含「{name_filter}」）" if name_filter else ""
                 return {"ok": True, "output": f"未在 {rel} 中找到符号{hint}。"}
-            return {"ok": True, "output": truncate(f"{rel} 中的符号（{len(results)} 个）：\n" + "\n".join(results))}
+            raw = f"{rel} 中的符号（{len(results)} 个）：\n" + "\n".join(results)
+            out, truncated, total = truncate_with_meta(raw)
+            result = {"ok": True, "output": out}
+            if truncated:
+                result["truncated"] = True
+                result["total_chars"] = total
+            return result
         except SyntaxError as e:
             return {"ok": False, "output": f"文件存在语法错误，无法解析：{e}"}
         except Exception as e:

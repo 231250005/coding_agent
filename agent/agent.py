@@ -8,14 +8,16 @@
 - 兜底错误处理：策略运行异常时返回错误信息而非崩溃
 """
 
+import asyncio
 import os
+from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
 from .context import ContextManager
 from .events import ERROR, DONE, REQUEST_CONFIRMATION, make_event
 from .llm import LLMClient
 from .permissions import FileChange, PermissionLevel, PermissionManager
-from .prompts import build_system_prompt
+from .prompts import AGENTS_MD_FULL_LIMIT, build_system_prompt
 from .sandbox import get_workspace, set_workspace
 from .strategies import AgentStrategy, get_strategy
 from .tools import ToolRegistry, build_default_registry
@@ -44,6 +46,9 @@ class Agent:
         self.strategy = strategy or get_strategy("react")
         self.workspace = workspace
         self.system_prompt = build_system_prompt(workspace)
+        # 超长 AGENTS.md（>全文注入上限）：标记待异步摘要（不阻塞构建事件循环）
+        self._agents_md_pending: Optional[str] = None
+        self._detect_long_agents_md(workspace)
         self.on_event = on_event or (lambda event: None)
         # 预算护栏：单任务 LLM 调用次数上限（环境变量 MAX_LLM_CALLS 可覆盖）
         self.llm_calls = 0
@@ -61,6 +66,36 @@ class Agent:
         self._inject_permissions()
         # 上下文管理（token 估算 + 长对话压缩）
         self.context = ContextManager()
+
+    def _detect_long_agents_md(self, workspace: Optional[str]) -> None:
+        """超长 AGENTS.md（>4000 字符）：记录内容，run() 时异步 LLM 摘要注入。"""
+        ws = Path(workspace) if workspace else get_workspace()
+        p = ws / "AGENTS.md"
+        if not p.is_file():
+            return
+        try:
+            content = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        if len(content) > AGENTS_MD_FULL_LIMIT:
+            self._agents_md_pending = content
+
+    async def _summarize_agents_md(self, content: str) -> Optional[str]:
+        """LLM 摘要 AGENTS.md（线程池执行，不阻塞事件循环）。失败降级不注入。"""
+        prompt = (
+            "请把以下项目规范文件（AGENTS.md）压缩为不超过 500 字的摘要，"
+            "必须保留：命令、依赖、代码规范、重要约束。\n\n"
+        ) + content[:12000]
+        try:
+            resp = await asyncio.to_thread(
+                self.llm.chat,
+                [{"role": "system", "content": "你是项目规范整理员。"},
+                 {"role": "user", "content": prompt}],
+                0.2,
+            )
+            return (resp.choices[0].message.content or "").strip()
+        except Exception:
+            return None
 
     def _inject_permissions(self) -> None:
         """给文件类工具注入 PermissionManager（write/edit/read 感知权限）。"""
@@ -130,6 +165,12 @@ class Agent:
         """
         # 设置当前任务工作区（asyncio 任务隔离，多会话互不干扰）
         set_workspace(self.workspace)
+        # 超长 AGENTS.md：异步摘要后注入系统提示词（信息保留主干，非硬截断）
+        if self._agents_md_pending:
+            summary = await self._summarize_agents_md(self._agents_md_pending)
+            if summary:
+                self.system_prompt += "\n\n## 项目规范（AGENTS.md 摘要）\n" + summary
+            self._agents_md_pending = None
         try:
             return await self.strategy.run(task, self, history=history)
         except Exception as e:

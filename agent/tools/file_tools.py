@@ -7,7 +7,7 @@
 """
 
 from ..permissions import PermissionLevel, PermissionManager
-from ..sandbox import MAX_READ_LINES, get_workspace, safe_join, truncate
+from ..sandbox import MAX_READ_LINES, get_workspace, safe_join, truncate, truncate_with_meta
 from .base import Tool
 
 # L3 自动提交改为任务完成时统一触发（见 Agent.finalize_commit），
@@ -132,7 +132,12 @@ class ReadFileTool(Tool):
                 segment = segment[:MAX_READ_LINES]
                 segment.append(f"… (范围过长，仅显示前 {MAX_READ_LINES} 行，可缩小 end_line 继续读取)…")
             numbered = "\n".join(f"{i + 1:>4} | {line}" for i, line in enumerate(segment, start=start))
-            return {"ok": True, "output": truncate(numbered)}
+            out, truncated, total = truncate_with_meta(numbered)
+            result = {"ok": True, "output": out}
+            if truncated:
+                result["truncated"] = True
+                result["total_chars"] = total
+            return result
         except Exception as e:
             return {"ok": False, "output": f"读取失败：{e}"}
 

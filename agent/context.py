@@ -63,18 +63,39 @@ class ContextManager:
         self.max_tokens = max_tokens or int(os.environ.get("MAX_CONTEXT_TOKENS", "20000"))
         self.keep_recent = keep_recent
         self.max_summary_chars = max_summary_chars
+        # usage 锚点：最近一次 LLM 响应的真实 prompt_tokens（及其对应消息数）
+        self._anchor_total: Optional[int] = None
+        self._anchor_count: Optional[int] = None
 
     # ---------- 统计 ----------
 
+    def record_usage(self, prompt_tokens: int, message_count: int) -> None:
+        """记录一次真实用量锚点：usage.prompt_tokens 是发送时 messages 的真实总量。
+
+        之后新增消息用估算补齐，压缩阈值判断从"纯估算"变为"真实锚点 + 增量估算"。
+        """
+        if prompt_tokens is not None and prompt_tokens > 0:
+            self._anchor_total = int(prompt_tokens)
+            self._anchor_count = message_count
+
+    @staticmethod
+    def _estimate_message(m: dict) -> int:
+        total = estimate_tokens(m.get("content") or "")
+        for tc in m.get("tool_calls") or []:
+            total += estimate_tokens(tc.get("function", {}).get("arguments", ""))
+        return total + _MSG_OVERHEAD
+
     def count_tokens(self, messages: list[dict]) -> int:
-        total = 0
-        for m in messages:
-            total += estimate_tokens(m.get("content") or "")
-            # 工具调用的参数也算
-            for tc in m.get("tool_calls") or []:
-                total += estimate_tokens(tc.get("function", {}).get("arguments", ""))
-            total += _MSG_OVERHEAD
-        return total
+        if (
+            self._anchor_total is not None
+            and self._anchor_count is not None
+            and len(messages) >= self._anchor_count
+        ):
+            # 锚点真实值 + 锚点之后新增消息的估算
+            base = self._anchor_total
+            extra = messages[self._anchor_count:]
+            return base + sum(self._estimate_message(m) for m in extra)
+        return sum(self._estimate_message(m) for m in messages)
 
     # ---------- 核心入口 ----------
 
@@ -140,6 +161,11 @@ class ContextManager:
             return messages, 0
         cut = max(1, span // 2)  # 压缩最早一半
         old = messages[1 : 1 + cut]
+        # 安全切割点：摘要区不得以 tool 消息结束——
+        # 不劈开"assistant 调用 → tool 结果"的因果对，模型不会看到孤立结果
+        while cut > 1 and old[-1].get("role") == "tool":
+            cut -= 1
+            old = messages[1 : 1 + cut]
 
         prompt = SUMMARIZE_PROMPT.format(
             limit=self.max_summary_chars,

@@ -3,15 +3,45 @@
 提示词是"意图识别"的引导层：
 模型看到用户任务后，结合这里的规范与工具 schema，自主决定调用哪些工具。
 独立成文件，方便单独维护/调优提示词。
+
+AGENTS.md 分级注入：工作区存在 AGENTS.md（项目规范）时——
+≤4000 字符全文注入（零截断）；超长由 Agent 异步 LLM 摘要后注入（信息保留主干）。
 """
+
+from pathlib import Path
 
 from .sandbox import get_workspace
 
+# AGENTS.md 全文注入上限（字符）；超长走 LLM 摘要
+AGENTS_MD_FULL_LIMIT = 4000
+
+
+def load_agents_md(workspace: str | None = None) -> str | None:
+    """读取工作区 AGENTS.md。≤4000 字符返回全文；超长或不存在返回 None。
+
+    超长场景由 Agent 异步摘要后注入（避免同步阻塞事件循环）。
+    """
+    ws = Path(workspace) if workspace else get_workspace()
+    p = ws / "AGENTS.md"
+    if not p.is_file():
+        return None
+    try:
+        content = p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if len(content) > AGENTS_MD_FULL_LIMIT:
+        return None
+    return content
+
 
 def build_system_prompt(workspace: str | None = None) -> str:
-    """生成系统提示词。workspace 会注入提示词，让模型知道自己的工作目录。"""
+    """生成系统提示词。workspace 会注入提示词，让模型知道自己的工作目录。
+
+    AGENTS.md（≤4000 字符）存在时追加为"项目规范"段；超长场景由
+    Agent 异步摘要注入（本函数不注入，避免阻塞）。
+    """
     ws = workspace or str(get_workspace())
-    return f"""你是 CodeAgent，一个运行在用户本机（Windows）上的编程智能体，能够自主完成编程任务。
+    base = f"""你是 CodeAgent，一个运行在用户本机（Windows）上的编程智能体，能够自主完成编程任务。
 
 ## 你的环境
 - 工作目录（只能在此目录内活动）：{ws}
@@ -64,3 +94,8 @@ def build_system_prompt(workspace: str | None = None) -> str:
 - 不要做工作区之外的事情，不要删除工作区内不相关的文件。
 - 如果任务确实无法完成（如需要图形界面人工操作），如实说明原因。
 """
+    # AGENTS.md 分级注入：≤4000 字符全文追加为项目规范
+    agents_content = load_agents_md(workspace)
+    if agents_content:
+        base += "\n\n## 项目规范（来自工作区 AGENTS.md）\n" + agents_content
+    return base

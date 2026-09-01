@@ -16,7 +16,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from ..sandbox import get_workspace, safe_join, truncate
+from ..sandbox import get_workspace, safe_join, truncate, truncate_with_meta
 from .base import Tool
 
 REVIEW_PROMPT = """你是资深代码评审专家。请审查以下代码。你的核心目标：判断代码能否正常运行，
@@ -93,7 +93,12 @@ class CodeReviewTool(Tool):
                 temperature=0.1,
             )
             verdict = resp.choices[0].message.content or "（评审无输出）"
-            return {"ok": True, "output": truncate(verdict)}
+            out, truncated, total = truncate_with_meta(verdict)
+            result = {"ok": True, "output": out}
+            if truncated:
+                result["truncated"] = True
+                result["total_chars"] = total
+            return result
         except Exception as e:
             return {"ok": False, "output": f"评审失败：{type(e).__name__}: {e}"}
 

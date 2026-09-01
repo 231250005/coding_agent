@@ -7,7 +7,7 @@ cwd 限定在工作区。非 git 仓库时返回友好错误，供模型判断�
 import os
 import subprocess
 
-from ..sandbox import get_workspace, truncate
+from ..sandbox import get_workspace, truncate, truncate_with_meta
 from .base import Tool
 
 _GIT_TIMEOUT = 30
@@ -50,7 +50,13 @@ class GitStatusTool(Tool):
                 return {"ok": True, "output": "工作区干净，无未提交的改动。"}
             lines = output.splitlines()
             summary = f"共 {len(lines)} 处改动："
-            return {"ok": True, "output": truncate(summary + "\n" + "\n".join(lines[:40]))}
+            raw = summary + "\n" + "\n".join(lines[:40])
+            out, truncated, total = truncate_with_meta(raw)
+            result = {"ok": True, "output": out}
+            if truncated:
+                result["truncated"] = True
+                result["total_chars"] = total
+            return result
         except subprocess.TimeoutExpired:
             return {"ok": False, "output": "git status 执行超时"}
         except Exception as e:
@@ -87,7 +93,12 @@ class GitDiffTool(Tool):
             output = (proc.stdout or "").strip()
             if not output:
                 return {"ok": True, "output": "（无未提交的改动）"}
-            return {"ok": True, "output": truncate(output)}
+            out, truncated, total = truncate_with_meta(output)
+            result = {"ok": True, "output": out}
+            if truncated:
+                result["truncated"] = True
+                result["total_chars"] = total
+            return result
         except subprocess.TimeoutExpired:
             return {"ok": False, "output": "git diff 执行超时"}
         except Exception as e:
@@ -151,7 +162,12 @@ class GitLogTool(Tool):
             output = (proc.stdout or "").strip()
             if not output:
                 return {"ok": True, "output": "仓库还没有任何提交记录。"}
-            return {"ok": True, "output": truncate(output)}
+            out, truncated, total = truncate_with_meta(output)
+            result = {"ok": True, "output": out}
+            if truncated:
+                result["truncated"] = True
+                result["total_chars"] = total
+            return result
         except subprocess.TimeoutExpired:
             return {"ok": False, "output": "git log 执行超时"}
         except Exception as e:
