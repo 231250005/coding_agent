@@ -22,8 +22,8 @@ from .sandbox import get_workspace, set_workspace
 from .strategies import AgentStrategy, get_strategy
 from .tools import ToolRegistry, build_default_registry
 
-# 感知权限的文件工具（注入 PermissionManager）
-_PERMISSION_AWARE_TOOLS = ("write_file", "read_file", "edit_file")
+# 感知权限的文件工具（注入 PermissionManager；generate_test 也会写文件）
+_PERMISSION_AWARE_TOOLS = ("write_file", "read_file", "edit_file", "generate_test")
 
 
 class Agent:

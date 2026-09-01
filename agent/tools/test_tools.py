@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 
+from ..permissions import PermissionLevel, PermissionManager
 from ..sandbox import get_workspace, safe_join, truncate
 from .base import Tool
 
@@ -50,8 +51,9 @@ class GenerateTestTool(Tool):
         "required": ["path"],
     }
 
-    def __init__(self, llm=None):
+    def __init__(self, llm=None, permissions: PermissionManager | None = None):
         self.llm = llm
+        self.permissions = permissions
 
     def execute(self, args: dict) -> dict:
         if self.llm is None:
@@ -83,13 +85,32 @@ class GenerateTestTool(Tool):
             if "def test_" not in code and "class Test" not in code:
                 return {"ok": False, "output": "生成的测试不包含 test 用例，生成失败，请重试"}
 
-            test_path.write_text(code, encoding="utf-8")
             case_count = code.count("def test_")
+            test_rel = test_path.relative_to(get_workspace()).as_posix()
+
+            # 权限联动（同 write_file）：L1 软修改等确认 / L2/L3 落盘+记录
+            if self.permissions is not None:
+                old_content = test_path.read_text(encoding="utf-8") if test_path.is_file() else ""
+                change = self.permissions.add_change(test_rel, "write", old_content, code, test_path)
+                if self.permissions.level == PermissionLevel.L1:
+                    return {
+                        "ok": True,
+                        "output": (
+                            f"已暂存对 {test_rel} 的修改（等待用户确认，change_id={change.change_id}）。"
+                            f"用户确认后才真正写入。"
+                        ),
+                        "pending_change": change.change_id,
+                        "written": False,
+                    }
+                test_path.write_text(code, encoding="utf-8")
+                return {"ok": True, "output": f"已生成测试文件 {test_rel}（{case_count} 个测试用例）"}
+
+            # 无权限管理（CLI）：直接写
+            test_path.write_text(code, encoding="utf-8")
             return {
                 "ok": True,
                 "output": (
-                    f"已生成测试文件 {test_path.relative_to(get_workspace()).as_posix()}"
-                    f"（{case_count} 个测试用例），请用 run_tests 运行验证"
+                    f"已生成测试文件 {test_rel}（{case_count} 个测试用例），请用 run_tests 运行验证"
                 ),
             }
         except Exception as e:
