@@ -89,19 +89,29 @@ class RunCommandTool(Tool):
         if background:
             # 后台启动：进程持续运行（GUI 窗口常驻可玩），立即返回
             try:
-                flags = subprocess.CREATE_NEW_PROCESS_GROUP
                 if args.get("new_console"):
-                    # 弹出可见命令行窗口（配合命令行交互程序，用户可直接游玩）
-                    flags |= subprocess.CREATE_NEW_CONSOLE
+                    # 弹出可见命令行窗口：用 cmd /c start 创建全新独立控制台
+                    # （start 创建的全新 cmd 进程有自己独立的控制台，I/O 属于新窗口，
+                    # 用户可直接键盘交互）；cmd /k 保持窗口不关闭。
+                    # stdin/stdout/stderr 显式 DEVNULL：外层 cmd 不持有调用者句柄
+                    # （防句柄滞留），新窗口内的程序走 cmd 自己的控制台不受影响。
+                    subprocess.Popen(
+                        f'cmd /c start "coding-agent" cmd /k {command}',
+                        cwd=get_workspace(),
+                        env=env,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    return {"ok": True, "output": f"已在后台启动：{command}（命令行窗口已弹出，用户可直接游玩）"}
                 subprocess.Popen(
                     command,
                     shell=True,
                     cwd=get_workspace(),
                     env=env,
-                    creationflags=flags,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
                 )
-                mode = "（命令行窗口已弹出，用户可直接游玩）" if args.get("new_console") else "（窗口/进程持续运行，用户可自行关闭）"
-                return {"ok": True, "output": f"已在后台启动：{command} {mode}"}
+                return {"ok": True, "output": f"已在后台启动：{command}（窗口/进程持续运行，用户可自行关闭）"}
             except Exception as e:
                 return {"ok": False, "output": f"后台启动失败：{e}", "exit_code": -1}
         try:
