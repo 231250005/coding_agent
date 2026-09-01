@@ -15,7 +15,7 @@ from openai import APIConnectionError, APIError, AsyncOpenAI, OpenAI
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_MODEL = "qwen3.7-max-2026-06-08"  # 免费额度耗尽后切换；QWEN_MODEL 环境变量可覆盖
 MAX_RETRIES = 3
-MAX_TOKENS = 8192  # 单次生成上限，防止单次超长输出失控
+MAX_TOKENS = 16384  # 单次生成上限（qwen3.7-plus 支持长输出；仍保留截断兜底）
 
 
 def _is_retryable(e: Exception) -> bool:
