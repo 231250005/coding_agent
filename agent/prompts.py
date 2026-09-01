@@ -71,6 +71,9 @@ def build_system_prompt(workspace: str | None = None) -> str:
       - 用户明确要求时：用 run_command 的 background=true 参数真正启动
         （进程持续运行、窗口常驻，用户可以直接使用）；
         不要用短超时验证模式（窗口会一闪而过）。
+      - 命令行交互程序（猜数字等 input 游戏）用户要求运行/游玩时：
+        background=true + new_console=true 弹出可见命令行窗口供用户输入；
+        GUI 程序（tkinter/pygame）只用 background=true（窗口自行弹出，勿传 new_console）。
       - 交互式程序需要验证逻辑时用测试脚本 + subprocess 传输入
         （禁止 python -c "import xxx" 直接调用，会阻塞超时）。
 5. 修复：运行/测试/评审报错时，用 read_file 定位问题，edit_file 修复，

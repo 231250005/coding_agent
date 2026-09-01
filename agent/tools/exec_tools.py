@@ -67,6 +67,10 @@ class RunCommandTool(Tool):
                 "type": "boolean",
                 "description": "true = 后台启动（不等待、不超时终止），适用于用户要求【运行/打开】程序时让窗口常驻；默认 false = 前台执行并等待结果",
             },
+            "new_console": {
+                "type": "boolean",
+                "description": "true = 弹出可见命令行窗口（仅配合 background=true；命令行交互程序如猜数字供用户直接游玩）；GUI 程序不要传此项（窗口会自行弹出）",
+            },
         },
         "required": ["command"],
     }
@@ -85,14 +89,19 @@ class RunCommandTool(Tool):
         if background:
             # 后台启动：进程持续运行（GUI 窗口常驻可玩），立即返回
             try:
+                flags = subprocess.CREATE_NEW_PROCESS_GROUP
+                if args.get("new_console"):
+                    # 弹出可见命令行窗口（配合命令行交互程序，用户可直接游玩）
+                    flags |= subprocess.CREATE_NEW_CONSOLE
                 subprocess.Popen(
                     command,
                     shell=True,
                     cwd=get_workspace(),
                     env=env,
-                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                    creationflags=flags,
                 )
-                return {"ok": True, "output": f"已在后台启动：{command}（窗口/进程持续运行，用户可自行关闭）"}
+                mode = "（命令行窗口已弹出，用户可直接游玩）" if args.get("new_console") else "（窗口/进程持续运行，用户可自行关闭）"
+                return {"ok": True, "output": f"已在后台启动：{command} {mode}"}
             except Exception as e:
                 return {"ok": False, "output": f"后台启动失败：{e}", "exit_code": -1}
         try:
