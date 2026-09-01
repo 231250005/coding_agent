@@ -493,7 +493,7 @@ GET /api/fs/resolve?name=coding_agent
     "name": "coding_agent",
     "matches": [
       "D:/coding_agent/coding_agent",
-      "C:/Users/86139/projects/coding_agent"
+      "C:/Users/me/projects/coding_agent"
     ]
   }
 }

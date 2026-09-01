@@ -2,7 +2,7 @@
 
 个人独立设计并实现的编程智能体:通过与大语言模型交互,自主读写文件、执行命令,完成编程任务——类似简化的 Claude Code / Codex / OpenCode。
 
-**合规声明**:全部代码仅使用 `openai` 客户端库(题目允许的 API 客户端库,OpenAI 兼容模式),未使用任何 agent 框架/SDK(LangChain、AutoGen、OpenAI Agents SDK、Claude Agent SDK 等);所有工具均在**本地**执行(subprocess + 文件系统),不依赖服务端托管的代码执行或文件工具(Code Interpreter、Files API)。对话历史与上下文管理、工具定义与本地执行、模型输出解析、循环终止条件、错误处理等重要逻辑全部自行编写,对应模块见下文各节。
+**合规声明**:全部代码仅使用 `openai` 客户端库(OpenAI 兼容模式),未使用任何 agent 框架/SDK(LangChain、AutoGen、OpenAI Agents SDK、Claude Agent SDK 等);所有工具均在**本地**执行(subprocess + 文件系统),不依赖服务端托管的代码执行或文件工具(Code Interpreter、Files API)。对话历史与上下文管理、工具定义与本地执行、模型输出解析、循环终止条件、错误处理等重要逻辑全部自行编写,对应模块见下文各节。
 
 > 本文档覆盖 **Agent 引擎与后端服务**的详细架构与实现(前端为独立 Vue 3 工程,前后端分离,见前端仓库自己的 README)。
 
@@ -126,7 +126,7 @@ Agent 引擎 ── agent/(纯逻辑,不依赖 FastAPI,CLI 可直接复用)
 
 ### 4. 上下文管理(`context.py`)
 
-题目要求的"对话历史与上下文管理"核心实现:
+"对话历史与上下文管理"核心实现:
 
 **Token 估算**(`context.py:33`):无依赖近似估算——CJK 字符 1 字符 ≈ 1 token,其他 4 字符 ≈ 1 token,每消息 +4 元数据开销。
 
@@ -281,7 +281,7 @@ server/
 
 ---
 
-## 关键设计决策(答辩要点)
+## 关键设计决策
 
 | 决策 | 理由 |
 |---|---|

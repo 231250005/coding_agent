@@ -2,7 +2,7 @@
 
 当前策略：
 - react（默认）：规范化 ReAct 循环——思考 → 调用现有工具 → 观察结果，
-  循环直到模型认为任务完成（见 PLAN §4）
+  循环直到模型认为任务完成
 
 新增策略只需继承 AgentStrategy + 在 _DEFAULT_STRATEGIES 注册一行。
 """
