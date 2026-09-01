@@ -39,6 +39,8 @@ class GenerateTestTool(Tool):
         "为指定代码文件生成 pytest 测试样例：分析代码后生成 test_<文件名>.py"
         "（覆盖正常/边界/异常路径）。完成或修改功能代码后应主动调用为代码补测试；"
         "生成后用 run_tests 运行验证。path 必须是相对工作区的相对路径。"
+        "keep=false 表示交付型任务的临时验证测试：直接写盘、不写入文件变更记录，"
+        "验证后应删除该临时文件。"
     )
     parameters = {
         "type": "object",
@@ -46,6 +48,12 @@ class GenerateTestTool(Tool):
             "path": {
                 "type": "string",
                 "description": "目标代码文件（相对工作区路径），如 todo.py",
+            },
+            "keep": {
+                "type": "boolean",
+                "description": "是否保留测试文件（默认 true）：true = 测试作为交付物保留，"
+                               "走正常权限记录（L1 需确认 / L2 可撤销）；"
+                               "false = 交付型任务的临时验证，直接写盘、不写入文件变更记录，验证后删除",
             },
         },
         "required": ["path"],
@@ -87,9 +95,12 @@ class GenerateTestTool(Tool):
 
             case_count = code.count("def test_")
             test_rel = test_path.relative_to(get_workspace()).as_posix()
+            keep = bool(args.get("keep", True))  # 默认保留（测试作为交付物）
 
-            # 权限联动（同 write_file）：L1 软修改等确认 / L2/L3 落盘+记录
-            if self.permissions is not None:
+            # 权限联动（同 write_file）：L1 软修改等确认 / L2/L3 落盘+记录。
+            # keep=false（交付型临时验证）：直接写盘、不进入文件变更记录——
+            # 临时测试文件不是交付内容，不应出现在变更面板/确认流程/撤销列表里。
+            if self.permissions is not None and keep:
                 old_content = test_path.read_text(encoding="utf-8") if test_path.is_file() else ""
                 change = self.permissions.add_change(test_rel, "write", old_content, code, test_path)
                 if self.permissions.level == PermissionLevel.L1:
@@ -105,8 +116,16 @@ class GenerateTestTool(Tool):
                 test_path.write_text(code, encoding="utf-8")
                 return {"ok": True, "output": f"已生成测试文件 {test_rel}（{case_count} 个测试用例）"}
 
-            # 无权限管理（CLI）：直接写
+            # keep=false 或无权限管理（CLI）：直接写
             test_path.write_text(code, encoding="utf-8")
+            if not keep:
+                return {
+                    "ok": True,
+                    "output": (
+                        f"已生成临时测试文件 {test_rel}（{case_count} 个测试用例，"
+                        f"未写入变更记录）。请用 run_tests 运行验证，验证后删除该临时文件。"
+                    ),
+                }
             return {
                 "ok": True,
                 "output": (

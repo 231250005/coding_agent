@@ -112,6 +112,41 @@ def main():
     note2 = _asyncio.run(agent2.finalize_commit("x"))
     check("L2 不触发提交", note2 == "")
 
+    print("=" * 50)
+    print("[7] generate_test keep 参数：keep=false 临时测试不入变更记录")
+    from types import SimpleNamespace as _NS
+    from agent.tools.test_tools import GenerateTestTool
+
+    class _FakeLLM:
+        def chat(self, messages, **kwargs):
+            return _NS(choices=[_NS(message=_NS(content="def test_x():\n    assert True\n"))])
+
+    ws7 = Path(_WS) / "keep_check"
+    ws7.mkdir()
+    os.environ["WORKSPACE_DIR"] = str(ws7)
+    (ws7 / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    (ws7 / "demo.py").write_text("x = 1\n", encoding="utf-8")
+    (ws7 / "util.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    # keep=true（默认）：L2 下记录变更（可撤销）
+    perm3 = PermissionManager(PermissionLevel.L2)
+    r = GenerateTestTool(llm=_FakeLLM(), permissions=perm3).execute({"path": "calc.py", "keep": True})
+    check("keep=true 生成成功", r["ok"], r["output"][:60])
+    changes = [c.file_path for c in perm3.changes()]
+    check("keep=true 记录变更", changes == ["test_calc.py"], str(changes))
+    # keep=false：直接写盘，不记录变更
+    r = GenerateTestTool(llm=_FakeLLM(), permissions=perm3).execute({"path": "demo.py", "keep": False})
+    check("keep=false 生成成功且提示临时", r["ok"] and "临时" in r["output"], r["output"][:80])
+    check("keep=false 文件已写盘", (ws7 / "test_demo.py").exists())
+    changes = [c.file_path for c in perm3.changes()]
+    check("keep=false 未记录变更", changes == ["test_calc.py"], str(changes))
+    # L1 + keep=false：直接写盘，不进 pending（临时文件无需用户确认）
+    perm4 = PermissionManager(PermissionLevel.L1)
+    r = GenerateTestTool(llm=_FakeLLM(), permissions=perm4).execute({"path": "util.py", "keep": False})
+    check("L1+keep=false 无 pending 直接写盘", r["ok"] and not r.get("pending_change")
+          and (ws7 / "test_util.py").exists(), r["output"][:80])
+    check("L1+keep=false 无 pending 变更", len(perm4.pending_changes()) == 0)
+
     shutil.rmtree(_WS, ignore_errors=True)
     print("=" * 50)
     print("✅ 三级权限系统验证全部通过")
