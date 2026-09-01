@@ -12,7 +12,7 @@ from .react import ReActStrategy
 
 __all__ = ["AgentStrategy", "StrategyRegistry", "get_strategy", "list_strategies"]
 
-_DEFAULT_STRATEGIES = [ReActStrategy()]
+_DEFAULT_STRATEGIES: dict[str, type[AgentStrategy]] = {"react": ReActStrategy}
 
 
 class StrategyRegistry:
@@ -32,12 +32,16 @@ class StrategyRegistry:
 
 
 def get_strategy(name: str = "react") -> AgentStrategy:
-    """获取默认注册表中的策略实例。"""
-    registry = StrategyRegistry()
-    for strategy in _DEFAULT_STRATEGIES:
-        registry.register(strategy)
-    return registry.get(name)
+    """获取策略实例。**每次返回新实例**。
+
+    策略实例持有本轮任务的运行状态（评审/测试去重），不可跨任务共享——
+    若复用单例，计数器会在会话间累积，导致评审/测试被过早阻断。
+    """
+    cls = _DEFAULT_STRATEGIES.get(name)
+    if cls is None:
+        raise KeyError(f"未知策略：{name}（可用：{', '.join(_DEFAULT_STRATEGIES)}）")
+    return cls()
 
 
 def list_strategies() -> list[str]:
-    return [s.name for s in _DEFAULT_STRATEGIES]
+    return list(_DEFAULT_STRATEGIES.keys())

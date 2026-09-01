@@ -27,3 +27,10 @@ class AgentStrategy(ABC):
         - agent.system_prompt  系统提示词
         """
         raise NotImplementedError
+
+    def reset(self) -> None:
+        """重置本轮任务运行状态（Agent.run 每次运行前调用）。
+
+        有状态策略（如 ReAct 的评审/测试去重）需覆写；无状态策略无需。
+        """
+        return None
