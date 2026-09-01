@@ -1,0 +1,7 @@
+# 后端与 agent 引擎依赖（前端为独立 Vue 3 工程，见前端仓库）
+fastapi>=0.110
+uvicorn>=0.29
+openai>=1.30
+pymysql>=1.1
+sqlalchemy>=2.0
+python-dotenv>=1.0

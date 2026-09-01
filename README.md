@@ -12,7 +12,13 @@
 
 需要 Python 3.11+ 与本地 MySQL(库不存在时后端会自动创建)。**前端图形可视化界面是最终使用方式**,步骤如下:
 
-### 1. 配置 `.env`(项目根目录,凭据不入库,`.gitignore` 已排除)
+### 1. 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. 配置 `.env`(项目根目录,凭据不入库,`.gitignore` 已排除)
 
 ```ini
 # 通义千问 API Key(阿里云百炼, OpenAI 兼容模式;也可走系统环境变量)
@@ -28,13 +34,13 @@ MYSQL_USER=root
 MYSQL_PASSWORD=
 ```
 
-### 2. 启动后端
+### 3. 启动后端
 
 ```bash
 python -m server.main     # http://127.0.0.1:8000,健康检查 GET /health;启动时自动建库建表
 ```
 
-### 3. 启动前端(图形可视化界面)
+### 4. 启动前端(图形可视化界面)
 
 前端是独立 Vue 3 工程(前后端分离),按前端仓库 README 启动:
 
